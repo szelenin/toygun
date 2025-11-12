@@ -93,23 +93,86 @@ Battery Option (Portable):
 
 **Important:** All grounds must be connected to a common ground!
 
+## Software Setup
+
+### WiFi Configuration
+
+Before uploading code to the ESP32, you need to configure WiFi settings in the Arduino sketch:
+
+**1. WiFi Credentials** (Lines 30-32 in ToyGunControl.ino):
+```cpp
+const char* ssid = "YOUR_WIFI_SSID";           // Change to your WiFi name
+const char* password = "YOUR_WIFI_PASSWORD";   // Change to your WiFi password
+const char* hostname = "toygun";               // Access via http://toygun.local
+```
+
+**2. Network Settings** (Lines 39-43):
+
+To find these values on your network:
+
+**On Mac:**
+- Go to **System Settings → Network → WiFi → Details**
+- Note: **Router** (gateway), **Subnet Mask**, and **DNS Server**
+
+**On iPhone:**
+- Go to **Settings → WiFi**
+- Tap **(i)** button next to your WiFi network
+- Note: **Router**, **Subnet Mask**, and **DNS**
+
+**On Windows:**
+- Open **Command Prompt**
+- Run: `ipconfig /all`
+- Note: **Default Gateway**, **Subnet Mask**, and **DNS Servers**
+
+**Configure in code:**
+```cpp
+IPAddress local_IP(192, 168, 86, 42);      // Choose any IP ending in 2-254
+IPAddress gateway(192, 168, 86, 1);        // Your router IP (from above)
+IPAddress subnet(255, 255, 255, 0);        // Subnet mask (from above)
+IPAddress primaryDNS(192, 168, 86, 1);     // DNS server (usually same as gateway)
+IPAddress secondaryDNS(8, 8, 8, 8);        // Google DNS as backup
+```
+
+**3. Accessing the Turret:**
+
+After uploading, the Serial Monitor will show:
+```
+✓ WiFi connected!
+IP address: 192.168.86.42
+mDNS responder started: http://toygun.local
+
+Access the turret at:
+  http://192.168.86.42
+  http://toygun.local
+```
+
+Use either:
+- **Static IP:** http://192.168.86.42
+- **mDNS hostname:** http://toygun.local (works on most devices)
+
 ## Wiring Connections
 
 ### Servo Connections
 - **Servo 1 (Horizontal):**
   - Red (Power) → 6V from buck converter
   - Brown (GND) → Common ground
-  - Orange (Signal) → ESP32 GPIO 18
+  - Orange (Signal) → ESP32 GPIO 12
 
 - **Servo 2 (Vertical):**
   - Red (Power) → 6V from buck converter
   - Brown (GND) → Common ground
-  - Orange (Signal) → ESP32 GPIO 19
+  - Orange (Signal) → ESP32 GPIO 13
 
-### Relay Connection
-- VCC → 5V from LM2596
-- GND → Common ground
-- Signal → ESP32 GPIO 21
+### Relay Connections (2 relays for firing mechanism)
+- **Relay 1 (Spinner Motor):**
+  - VCC → 5V from LM2596
+  - GND → Common ground
+  - Signal → ESP32 GPIO 14
+
+- **Relay 2 (Trigger):**
+  - VCC → 5V from LM2596
+  - GND → Common ground
+  - Signal → ESP32 GPIO 15
 
 ### ESP32 Power
 - Vin → 5V from LM2596
