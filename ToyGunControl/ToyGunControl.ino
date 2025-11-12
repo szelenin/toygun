@@ -86,7 +86,7 @@ bool movingLeft = false;
 bool movingRight = false;
 
 unsigned long lastMoveTime = 0;
-const int MOVE_DELAY = 20;  // milliseconds between each degree of movement
+const int MOVE_DELAY = 30;  // milliseconds between each degree of movement (slower = higher value)
 const int MOVE_STEP = 1;    // degrees to move per step
 
 // Position persistence
@@ -490,14 +490,14 @@ void loop() {
     lastMoveTime = currentTime;
     bool moved = false;
 
-    // Vertical movement
-    if (movingUp && verticalAngle < VERTICAL_MAX) {
-      verticalAngle += MOVE_STEP;
+    // Vertical movement (reversed: up button decreases angle, down button increases)
+    if (movingUp && verticalAngle > VERTICAL_MIN) {
+      verticalAngle -= MOVE_STEP;
       verticalServo.write(verticalAngle);
       moved = true;
     }
-    if (movingDown && verticalAngle > VERTICAL_MIN) {
-      verticalAngle -= MOVE_STEP;
+    if (movingDown && verticalAngle < VERTICAL_MAX) {
+      verticalAngle += MOVE_STEP;
       verticalServo.write(verticalAngle);
       moved = true;
     }
