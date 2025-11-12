@@ -1,11 +1,13 @@
 /*
- * Toy Gun Turret Control - Step 3a
- * Webserver with WiFi connection
+ * Toy Gun Turret Control - Step 3b+c
+ * Directional control with web interface
  *
  * Features:
- * - WiFi connection
- * - Basic web server
- * - Servo control (will add UI in next step)
+ * - WiFi connection with static IP and mDNS
+ * - Web interface with directional control buttons
+ * - Press and hold button to move servo
+ * - Release button to stop movement
+ * - Real-time position display
  *
  * Movement ranges:
  * - Vertical: ±15° from center (75° to 105°)
@@ -71,6 +73,16 @@ const int VERTICAL_MAX = min(180, VERTICAL_CENTER + VERTICAL_RANGE);          //
 int horizontalAngle = HORIZONTAL_CENTER;  // Start at center
 int verticalAngle = VERTICAL_CENTER;      // Start at center
 
+// Movement control
+bool movingUp = false;
+bool movingDown = false;
+bool movingLeft = false;
+bool movingRight = false;
+
+unsigned long lastMoveTime = 0;
+const int MOVE_DELAY = 20;  // milliseconds between each degree of movement
+const int MOVE_STEP = 1;    // degrees to move per step
+
 // ===========================
 // HTML webpage
 // ===========================
@@ -80,44 +92,213 @@ const char* htmlPage = R"rawliteral(
 <head>
   <meta charset="UTF-8">
   <title>Toy Gun Turret Control</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
   <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+      -webkit-touch-callout: none;
+      -webkit-user-select: none;
+      user-select: none;
+    }
     body {
       font-family: Arial, sans-serif;
       text-align: center;
-      margin: 20px;
-      background-color: #f0f0f0;
+      padding: 20px;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      min-height: 100vh;
     }
     h1 {
-      color: #333;
+      color: white;
+      margin-bottom: 20px;
+      text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
     }
-    .info {
+    .container {
       background-color: #fff;
-      padding: 15px;
-      border-radius: 10px;
-      margin: 20px auto;
+      padding: 20px;
+      border-radius: 15px;
+      margin: 0 auto;
       max-width: 400px;
-      box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+      box-shadow: 0 4px 15px rgba(0,0,0,0.3);
     }
     .status {
-      font-size: 1.2em;
-      margin: 10px 0;
+      font-size: 1.3em;
+      margin: 15px 0;
+      padding: 10px;
+      background-color: #f8f9fa;
+      border-radius: 8px;
+      color: #333;
+    }
+    .status span {
+      font-weight: bold;
+      color: #667eea;
+    }
+    .controls {
+      margin: 30px auto;
+      width: 200px;
+      height: 200px;
+      position: relative;
+    }
+    .btn {
+      position: absolute;
+      width: 60px;
+      height: 60px;
+      border: none;
+      border-radius: 10px;
+      font-size: 24px;
+      cursor: pointer;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      box-shadow: 0 4px 10px rgba(0,0,0,0.2);
+      transition: all 0.1s;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .btn:active {
+      transform: scale(0.95);
+      box-shadow: 0 2px 5px rgba(0,0,0,0.3);
+    }
+    .btn.pressed {
+      background: linear-gradient(135deg, #764ba2 0%, #667eea 100%);
+      transform: scale(0.95);
+    }
+    #btnUp {
+      top: 0;
+      left: 50%;
+      transform: translateX(-50%);
+    }
+    #btnDown {
+      bottom: 0;
+      left: 50%;
+      transform: translateX(-50%);
+    }
+    #btnLeft {
+      left: 0;
+      top: 50%;
+      transform: translateY(-50%);
+    }
+    #btnRight {
+      right: 0;
+      top: 50%;
+      transform: translateY(-50%);
+    }
+    .center-dot {
+      position: absolute;
+      width: 20px;
+      height: 20px;
+      background-color: #ddd;
+      border-radius: 50%;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+    }
+    .info {
+      margin-top: 20px;
+      padding: 10px;
+      background-color: #f8f9fa;
+      border-radius: 8px;
+      font-size: 0.9em;
+      color: #666;
     }
   </style>
 </head>
 <body>
   <h1>🎯 Toy Gun Turret</h1>
-  <div class="info">
+  <div class="container">
     <div class="status">
       Horizontal: <span id="hAngle">90</span>°
     </div>
     <div class="status">
       Vertical: <span id="vAngle">90</span>°
     </div>
-    <p style="color: #666; margin-top: 20px;">
-      Control interface coming in next step!
-    </p>
+
+    <div class="controls">
+      <button class="btn" id="btnUp">▲</button>
+      <button class="btn" id="btnDown">▼</button>
+      <button class="btn" id="btnLeft">◀</button>
+      <button class="btn" id="btnRight">▶</button>
+      <div class="center-dot"></div>
+    </div>
+
+    <div class="info">
+      Press and hold buttons to move<br>
+      Release to stop
+    </div>
   </div>
+
+  <script>
+    // Movement control functions
+    function startMove(direction) {
+      fetch('/move?dir=' + direction + '&state=1')
+        .catch(err => console.error('Error:', err));
+    }
+
+    function stopMove(direction) {
+      fetch('/move?dir=' + direction + '&state=0')
+        .catch(err => console.error('Error:', err));
+    }
+
+    // Update position display
+    function updatePosition() {
+      fetch('/position')
+        .then(response => response.json())
+        .then(data => {
+          document.getElementById('hAngle').textContent = data.h;
+          document.getElementById('vAngle').textContent = data.v;
+        })
+        .catch(err => console.error('Error:', err));
+    }
+
+    // Setup buttons
+    const buttons = {
+      btnUp: 'up',
+      btnDown: 'down',
+      btnLeft: 'left',
+      btnRight: 'right'
+    };
+
+    Object.keys(buttons).forEach(btnId => {
+      const btn = document.getElementById(btnId);
+      const dir = buttons[btnId];
+
+      // Mouse events
+      btn.addEventListener('mousedown', () => {
+        btn.classList.add('pressed');
+        startMove(dir);
+      });
+      btn.addEventListener('mouseup', () => {
+        btn.classList.remove('pressed');
+        stopMove(dir);
+      });
+      btn.addEventListener('mouseleave', () => {
+        btn.classList.remove('pressed');
+        stopMove(dir);
+      });
+
+      // Touch events for mobile
+      btn.addEventListener('touchstart', (e) => {
+        e.preventDefault();
+        btn.classList.add('pressed');
+        startMove(dir);
+      });
+      btn.addEventListener('touchend', (e) => {
+        e.preventDefault();
+        btn.classList.remove('pressed');
+        stopMove(dir);
+      });
+      btn.addEventListener('touchcancel', (e) => {
+        e.preventDefault();
+        btn.classList.remove('pressed');
+        stopMove(dir);
+      });
+    });
+
+    // Update position every 200ms
+    setInterval(updatePosition, 200);
+    updatePosition(); // Initial update
+  </script>
 </body>
 </html>
 )rawliteral";
@@ -127,6 +308,32 @@ const char* htmlPage = R"rawliteral(
 // ===========================
 void handleRoot() {
   server.send(200, "text/html", htmlPage);
+}
+
+void handleMove() {
+  if (server.hasArg("dir") && server.hasArg("state")) {
+    String direction = server.arg("dir");
+    int state = server.arg("state").toInt();
+
+    if (direction == "up") {
+      movingUp = (state == 1);
+    } else if (direction == "down") {
+      movingDown = (state == 1);
+    } else if (direction == "left") {
+      movingLeft = (state == 1);
+    } else if (direction == "right") {
+      movingRight = (state == 1);
+    }
+
+    server.send(200, "text/plain", "OK");
+  } else {
+    server.send(400, "text/plain", "Missing parameters");
+  }
+}
+
+void handlePosition() {
+  String json = "{\"h\":" + String(horizontalAngle) + ",\"v\":" + String(verticalAngle) + "}";
+  server.send(200, "application/json", json);
 }
 
 void handleNotFound() {
@@ -212,18 +419,58 @@ void setup() {
 
   // Setup web server routes
   server.on("/", handleRoot);
+  server.on("/move", handleMove);
+  server.on("/position", handlePosition);
   server.onNotFound(handleNotFound);
 
   // Start server
   server.begin();
   Serial.println("Web server started");
+  Serial.println("\nReady for control!");
 }
 
 void loop() {
   // Handle incoming web requests
   server.handleClient();
 
-  // Servos hold position (no auto-movement anymore)
-  // Manual control will be added in Step 3b
-  // Note: mDNS runs automatically on ESP32 (no update() needed)
+  // Handle servo movement based on button presses
+  unsigned long currentTime = millis();
+
+  if (currentTime - lastMoveTime >= MOVE_DELAY) {
+    lastMoveTime = currentTime;
+    bool moved = false;
+
+    // Vertical movement
+    if (movingUp && verticalAngle < VERTICAL_MAX) {
+      verticalAngle += MOVE_STEP;
+      verticalServo.write(verticalAngle);
+      moved = true;
+    }
+    if (movingDown && verticalAngle > VERTICAL_MIN) {
+      verticalAngle -= MOVE_STEP;
+      verticalServo.write(verticalAngle);
+      moved = true;
+    }
+
+    // Horizontal movement
+    if (movingLeft && horizontalAngle > HORIZONTAL_MIN) {
+      horizontalAngle -= MOVE_STEP;
+      horizontalServo.write(horizontalAngle);
+      moved = true;
+    }
+    if (movingRight && horizontalAngle < HORIZONTAL_MAX) {
+      horizontalAngle += MOVE_STEP;
+      horizontalServo.write(horizontalAngle);
+      moved = true;
+    }
+
+    // Debug output when moving
+    if (moved) {
+      Serial.print("Position - H: ");
+      Serial.print(horizontalAngle);
+      Serial.print("° V: ");
+      Serial.print(verticalAngle);
+      Serial.println("°");
+    }
+  }
 }
