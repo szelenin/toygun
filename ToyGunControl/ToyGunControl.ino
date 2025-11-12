@@ -73,7 +73,7 @@ const int VERTICAL_RANGE = 15;    // ±15° from center
 const int HORIZONTAL_MIN = max(0, HORIZONTAL_CENTER - HORIZONTAL_RANGE);      // 0° (clamped)
 const int HORIZONTAL_MAX = min(180, HORIZONTAL_CENTER + HORIZONTAL_RANGE);    // 180°
 const int VERTICAL_MIN = max(0, VERTICAL_CENTER - VERTICAL_RANGE);            // 75°
-const int VERTICAL_MAX = min(180, VERTICAL_CENTER + VERTICAL_RANGE);          // 105°
+const int VERTICAL_MAX = 100;                                                 // 100° (restricted lower limit)
 
 // Current angle variables (tracking servo positions)
 int horizontalAngle = HORIZONTAL_CENTER;  // Start at center
@@ -86,7 +86,7 @@ bool movingLeft = false;
 bool movingRight = false;
 
 unsigned long lastMoveTime = 0;
-const int MOVE_DELAY = 30;  // milliseconds between each degree of movement (slower = higher value)
+const int MOVE_DELAY = 40;  // milliseconds between each degree of movement (slower = higher value)
 const int MOVE_STEP = 1;    // degrees to move per step
 
 // Position persistence
