@@ -295,8 +295,8 @@ const char* htmlPage = R"rawliteral(
       });
     });
 
-    // Update position every 200ms
-    setInterval(updatePosition, 200);
+    // Update position every 50ms (20 times per second for smooth display)
+    setInterval(updatePosition, 50);
     updatePosition(); // Initial update
   </script>
 </body>
