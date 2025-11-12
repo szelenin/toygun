@@ -238,6 +238,10 @@ const char* htmlPage = R"rawliteral(
       Press and hold buttons to move<br>
       Release to stop
     </div>
+
+    <button id="btnReset" style="margin-top: 20px; padding: 12px 24px; background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); color: white; border: none; border-radius: 8px; font-size: 1em; cursor: pointer; box-shadow: 0 4px 10px rgba(0,0,0,0.2);">
+      🔄 Reset to Center (90°)
+    </button>
   </div>
 
   <script>
@@ -305,6 +309,22 @@ const char* htmlPage = R"rawliteral(
         btn.classList.remove('pressed');
         stopMove(dir);
       });
+    });
+
+    // Reset button
+    document.getElementById('btnReset').addEventListener('click', () => {
+      if (confirm('Reset servos to center (90°) and clear saved positions?')) {
+        fetch('/reset')
+          .then(response => response.text())
+          .then(data => {
+            alert('✓ Reset complete! Servos moved to 90°');
+            updatePosition();
+          })
+          .catch(err => {
+            alert('✗ Reset failed: ' + err);
+            console.error('Error:', err);
+          });
+      }
     });
 
     // Update position every 50ms (20 times per second for smooth display)
@@ -385,6 +405,38 @@ void handleMove() {
 void handlePosition() {
   String json = "{\"h\":" + String(horizontalAngle) + ",\"v\":" + String(verticalAngle) + "}";
   server.send(200, "application/json", json);
+}
+
+void handleReset() {
+  Serial.println("\n🔄 Reset requested - clearing saved positions");
+
+  // Clear saved positions from flash
+  preferences.begin("turret", false);
+  preferences.clear();
+  preferences.end();
+
+  // Reset to center positions
+  horizontalAngle = HORIZONTAL_CENTER;
+  verticalAngle = VERTICAL_CENTER;
+
+  // Move servos to center
+  horizontalServo.write(horizontalAngle);
+  verticalServo.write(verticalAngle);
+
+  // Mark as saved (no pending changes)
+  positionsSaved = true;
+  positionChanged = false;
+
+  Serial.println("✓ Reset complete:");
+  Serial.print("  Horizontal: ");
+  Serial.print(horizontalAngle);
+  Serial.println("°");
+  Serial.print("  Vertical: ");
+  Serial.print(verticalAngle);
+  Serial.println("°");
+  Serial.println("  Saved positions cleared from flash");
+
+  server.send(200, "text/plain", "Reset complete");
 }
 
 void handleNotFound() {
@@ -471,6 +523,7 @@ void setup() {
   server.on("/", handleRoot);
   server.on("/move", handleMove);
   server.on("/position", handlePosition);
+  server.on("/reset", handleReset);
   server.onNotFound(handleNotFound);
 
   // Start server
