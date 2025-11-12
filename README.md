@@ -178,6 +178,32 @@ Use either:
 - Vin → 5V from LM2596
 - GND → Common ground
 
+## Assembly Photos
+
+### Electronics and Breadboard Setup
+
+![Breadboard with ESP32 and Buck Converters](images/IMG_6874.jpg)
+*Breadboard setup showing ESP32-WROOM-32E, LM2596 (5V) and YRDZXG (6V) buck converters, with servo connections*
+
+![Close-up of Control Board](images/IMG_6875.jpg)
+*Close-up view of the control electronics - ESP32 and power regulation circuit*
+
+### Servo Mounting System
+
+![Vertical Servo Mount - Side View](images/IMG_6878.jpg)
+*3D printed vertical servo mount attached to tripod with DS3235 servo*
+
+![Horizontal Rotation Mechanism](images/IMG_6879.jpg)
+*Horizontal servo controlling left/right rotation with 3D printed mounting bracket*
+
+![Servo Mount Detail](images/IMG_6880.jpg)
+*Detail of dual-servo mounting system showing vertical tilt mechanism*
+
+### Fully Assembled Turret
+
+![Complete Assembly on Tripod](images/IMG_6877.jpg)
+*Fully assembled toy gun turret on tripod with WiFi-controlled servo system*
+
 ## Assembly Steps
 
 1. **3D Print Parts**
