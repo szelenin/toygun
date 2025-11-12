@@ -1,6 +1,6 @@
 /*
- * Toy Gun Turret Control - Step 3b+c
- * Directional control with web interface
+ * Toy Gun Turret Control - Step 3d
+ * Directional control with position persistence
  *
  * Features:
  * - WiFi connection with static IP and mDNS
@@ -8,6 +8,8 @@
  * - Press and hold button to move servo
  * - Release button to stop movement
  * - Real-time position display
+ * - Position persistence (survives power cycles)
+ * - Auto-save after 3 seconds idle
  *
  * Movement ranges:
  * - Vertical: ±15° from center (75° to 105°)
@@ -25,6 +27,7 @@
 #include <WiFi.h>
 #include <WebServer.h>
 #include <ESPmDNS.h>
+#include <Preferences.h>
 
 // ===========================
 // WiFi credentials
@@ -55,6 +58,9 @@ Servo verticalServo;
 // Webserver
 WebServer server(80);
 
+// Preferences for position persistence
+Preferences preferences;
+
 // Movement ranges - center positions
 const int HORIZONTAL_CENTER = 90;
 const int VERTICAL_CENTER = 90;
@@ -82,6 +88,12 @@ bool movingRight = false;
 unsigned long lastMoveTime = 0;
 const int MOVE_DELAY = 20;  // milliseconds between each degree of movement
 const int MOVE_STEP = 1;    // degrees to move per step
+
+// Position persistence
+unsigned long lastActivityTime = 0;
+const unsigned long SAVE_DELAY = 3000;  // Save 3 seconds after last movement
+bool positionChanged = false;
+bool positionsSaved = true;  // Start as true (no unsaved changes)
 
 // ===========================
 // HTML webpage
@@ -304,6 +316,45 @@ const char* htmlPage = R"rawliteral(
 )rawliteral";
 
 // ===========================
+// Position persistence functions
+// ===========================
+void loadPositions() {
+  preferences.begin("turret", true);  // Read-only mode
+
+  horizontalAngle = preferences.getInt("hAngle", HORIZONTAL_CENTER);
+  verticalAngle = preferences.getInt("vAngle", VERTICAL_CENTER);
+
+  preferences.end();
+
+  Serial.println("Loaded saved positions:");
+  Serial.print("  Horizontal: ");
+  Serial.print(horizontalAngle);
+  Serial.println("°");
+  Serial.print("  Vertical: ");
+  Serial.print(verticalAngle);
+  Serial.println("°");
+}
+
+void savePositions() {
+  preferences.begin("turret", false);  // Read-write mode
+
+  preferences.putInt("hAngle", horizontalAngle);
+  preferences.putInt("vAngle", verticalAngle);
+
+  preferences.end();
+
+  positionsSaved = true;
+
+  Serial.println("💾 Positions saved to flash:");
+  Serial.print("  Horizontal: ");
+  Serial.print(horizontalAngle);
+  Serial.println("°");
+  Serial.print("  Vertical: ");
+  Serial.print(verticalAngle);
+  Serial.println("°");
+}
+
+// ===========================
 // Handler functions
 // ===========================
 void handleRoot() {
@@ -343,32 +394,31 @@ void handleNotFound() {
 void setup() {
   // Initialize serial communication for debugging
   Serial.begin(115200);
-  Serial.println("\n\nToy Gun Turret - Step 3a: Webserver");
+  Serial.println("\n\nToy Gun Turret - Step 3d: Position Persistence");
+
+  // Load saved positions from flash (or use defaults)
+  loadPositions();
 
   // Attach servos to GPIO pins
   horizontalServo.attach(SERVO_PIN_HORIZONTAL);
   verticalServo.attach(SERVO_PIN_VERTICAL);
 
-  // Set both servos to center position
+  // Set servos to loaded/saved position
   horizontalServo.write(horizontalAngle);
   verticalServo.write(verticalAngle);
 
-  Serial.println("Servos initialized to center position");
-  Serial.print("Horizontal: ");
-  Serial.print(horizontalAngle);
-  Serial.print("° (range: ");
+  Serial.println("\nServo ranges:");
+  Serial.print("  Horizontal: ");
   Serial.print(HORIZONTAL_MIN);
   Serial.print("° to ");
   Serial.print(HORIZONTAL_MAX);
-  Serial.println("°)");
+  Serial.println("°");
 
-  Serial.print("Vertical: ");
-  Serial.print(verticalAngle);
-  Serial.print("° (range: ");
+  Serial.print("  Vertical: ");
   Serial.print(VERTICAL_MIN);
   Serial.print("° to ");
   Serial.print(VERTICAL_MAX);
-  Serial.println("°)");
+  Serial.println("°");
 
   // Configure static IP (comment out these lines to use DHCP)
   if (!WiFi.config(local_IP, gateway, subnet, primaryDNS, secondaryDNS)) {
@@ -464,13 +514,25 @@ void loop() {
       moved = true;
     }
 
-    // Debug output when moving
+    // Track activity for auto-save
     if (moved) {
+      lastActivityTime = currentTime;
+      positionChanged = true;
+      positionsSaved = false;
+
+      // Debug output when moving
       Serial.print("Position - H: ");
       Serial.print(horizontalAngle);
       Serial.print("° V: ");
       Serial.print(verticalAngle);
       Serial.println("°");
     }
+  }
+
+  // Auto-save positions after idle period
+  if (positionChanged && !positionsSaved &&
+      (currentTime - lastActivityTime >= SAVE_DELAY)) {
+    savePositions();
+    positionChanged = false;
   }
 }
