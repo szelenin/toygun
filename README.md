@@ -251,3 +251,5 @@ Use either:
 3. **LiPo battery safety** - Store in fireproof bag, never over-discharge below 3.2V per cell
 4. **Voltage checks** - Use multimeter to verify voltages before connecting components
 5. **Toy gun safety** - Only use in controlled environment, never aim at people without eye protection
+
+lizard rush was here
