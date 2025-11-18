@@ -34,7 +34,7 @@
 // ===========================
 const char* ssid = "Edgar";
 const char* password = "Password!23";
-const char* hostname = "toygun";  // Access via http://toygun.local
+const char* hostname = "lizardgun3000";  // Access via http://toygun.local
 
 // Static IP configuration (optional - comment out to use DHCP)
 // How to find these values:
