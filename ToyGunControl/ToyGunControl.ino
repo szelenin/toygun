@@ -1,6 +1,6 @@
 /*
- * Toy Gun Turret Control - Step 3d
- * Directional control with position persistence
+ * Toy Gun Turret Control - Step 4a
+ * Directional control with relay support for firing
  *
  * Features:
  * - WiFi connection with static IP and mDNS
@@ -10,17 +10,19 @@
  * - Real-time position display
  * - Position persistence (survives power cycles)
  * - Auto-save after 3 seconds idle
+ * - 2-channel relay control for spinner and trigger motors
  *
  * Movement ranges:
- * - Vertical: ±15° from center (75° to 105°)
- * - Horizontal: ±90° from center (0° to 180°)
+ * - Vertical: 75° to 100°
+ * - Horizontal: 0° to 180°
  *
  * Hardware:
  * - Horizontal servo on GPIO 12
  * - Vertical servo on GPIO 13
- * - Both servos powered by 6V buck converter (not ESP32!)
- *
- * Future: GPIO 14 (Relay 1 - Spinner), GPIO 15 (Relay 2 - Trigger)
+ * - Relay 1 (Trigger) on GPIO 14
+ * - Relay 2 (Spinner) on GPIO 15
+ * - Servos powered by 6V buck converter (not ESP32!)
+ * - Relays powered by 5V buck converter
  */
 
 #include <ESP32Servo.h>
@@ -34,7 +36,7 @@
 // ===========================
 const char* ssid = "Edgar";
 const char* password = "Password!23";
-const char* hostname = "lizardgun3000";  // Access via http://toygun.local
+const char* hostname = "lizardgun3000";  // Access via http://lizardgun3000.local
 
 // Static IP configuration (optional - comment out to use DHCP)
 // How to find these values:
@@ -50,10 +52,16 @@ IPAddress secondaryDNS(8, 8, 8, 8);        // Fallback DNS (Google's public DNS)
 // GPIO pin definitions
 #define SERVO_PIN_HORIZONTAL 12
 #define SERVO_PIN_VERTICAL   13
+#define RELAY_PIN_SPINNER    15  // Relay 2 - controls spinner motor
+#define RELAY_PIN_TRIGGER    14  // Relay 1 - controls trigger motor
 
 // Servo objects
 Servo horizontalServo;
 Servo verticalServo;
+
+// Relay state (LOW = OFF, HIGH = ON)
+bool spinnerActive = false;
+bool triggerActive = false;
 
 // Webserver
 WebServer server(80);
@@ -439,6 +447,47 @@ void handleReset() {
   server.send(200, "text/plain", "Reset complete");
 }
 
+void handleRelay() {
+  // Handle relay control via query parameters
+  // Examples: /relay?spinner=on, /relay?trigger=off, /relay?spinner=on&trigger=on
+  // Note: Relays are active-LOW (LOW = ON, HIGH = OFF)
+
+  if (server.hasArg("spinner")) {
+    String spinnerState = server.arg("spinner");
+    if (spinnerState == "on") {
+      digitalWrite(RELAY_PIN_SPINNER, LOW);  // LOW = ON for active-LOW relay
+      spinnerActive = true;
+      Serial.println("🔫 Spinner motor: ON");
+    } else if (spinnerState == "off") {
+      digitalWrite(RELAY_PIN_SPINNER, HIGH);  // HIGH = OFF for active-LOW relay
+      spinnerActive = false;
+      Serial.println("🔫 Spinner motor: OFF");
+    }
+  }
+
+  if (server.hasArg("trigger")) {
+    String triggerState = server.arg("trigger");
+    if (triggerState == "on") {
+      digitalWrite(RELAY_PIN_TRIGGER, LOW);  // LOW = ON for active-LOW relay
+      triggerActive = true;
+      Serial.println("🔫 Trigger motor: ON");
+    } else if (triggerState == "off") {
+      digitalWrite(RELAY_PIN_TRIGGER, HIGH);  // HIGH = OFF for active-LOW relay
+      triggerActive = false;
+      Serial.println("🔫 Trigger motor: OFF");
+    }
+  }
+
+  // Return current relay states as JSON
+  String json = "{\"spinner\":";
+  json += spinnerActive ? "true" : "false";
+  json += ",\"trigger\":";
+  json += triggerActive ? "true" : "false";
+  json += "}";
+
+  server.send(200, "application/json", json);
+}
+
 void handleNotFound() {
   server.send(404, "text/plain", "404: Not Found");
 }
@@ -446,7 +495,7 @@ void handleNotFound() {
 void setup() {
   // Initialize serial communication for debugging
   Serial.begin(115200);
-  Serial.println("\n\nToy Gun Turret - Step 3d: Position Persistence");
+  Serial.println("\n\nToy Gun Turret - Step 4a: Relay Control");
 
   // Load saved positions from flash (or use defaults)
   loadPositions();
@@ -458,6 +507,14 @@ void setup() {
   // Set servos to loaded/saved position
   horizontalServo.write(horizontalAngle);
   verticalServo.write(verticalAngle);
+
+  // Initialize relay pins (active LOW - HIGH = OFF, LOW = ON)
+  pinMode(RELAY_PIN_SPINNER, OUTPUT);
+  pinMode(RELAY_PIN_TRIGGER, OUTPUT);
+  digitalWrite(RELAY_PIN_SPINNER, HIGH);  // OFF initially (HIGH for active-LOW relays)
+  digitalWrite(RELAY_PIN_TRIGGER, HIGH);  // OFF initially (HIGH for active-LOW relays)
+
+  Serial.println("\nRelay pins initialized (GPIO 14: Trigger, GPIO 15: Spinner)");
 
   Serial.println("\nServo ranges:");
   Serial.print("  Horizontal: ");
@@ -524,6 +581,7 @@ void setup() {
   server.on("/move", handleMove);
   server.on("/position", handlePosition);
   server.on("/reset", handleReset);
+  server.on("/relay", handleRelay);
   server.onNotFound(handleNotFound);
 
   // Start server
