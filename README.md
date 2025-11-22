@@ -178,42 +178,6 @@ Use either:
 - Vin → 5V from LM2596
 - GND → Common ground
 
-## Relay Module Wiring
-
-The 2-channel relay module controls the gun's firing mechanism - one relay for the spinner motor and one for the trigger.
-
-### Control Side (Top of Module)
-
-![Relay Control Pins](images/relay_control_pins_annotated.jpg)
-*Control pins connect to ESP32 for relay activation*
-
-**Pin Connections:**
-- **VCC** → ESP32 3.3V (relay module works with 3.3V-5V logic)
-- **GND** → Common ground
-- **IN1** → GPIO 14 (controls Relay 1 - Spinner Motor)
-- **IN2** → GPIO 15 (controls Relay 2 - Trigger)
-
-### Output Side (Bottom Terminals)
-
-![Relay Output Terminals](images/relay_output_terminals_annotated.jpg)
-*Output terminals switch the motor power on/off*
-
-**Relay 1 - Spinner Motor:**
-- **COM** (Common) → +12V from power supply
-- **NO** (Normally Open) → To spinner motor positive wire
-- **NC** (Normally Closed) → Not used
-- Motor GND → 12V power supply GND
-
-**Relay 2 - Trigger Motor:**
-- **COM** (Common) → +12V from power supply
-- **NO** (Normally Open) → To trigger motor positive wire
-- **NC** (Normally Closed) → Not used
-- Motor GND → 12V power supply GND
-
-**How it works:** When GPIO 14 or 15 goes HIGH, the relay closes, connecting COM to NO, which completes the circuit and powers the motor.
-
-⚠️ **Important:** Always connect the motor's negative (GND) wire directly to the 12V power supply ground to complete the circuit!
-
 ## Assembly Photos
 
 ### Electronics and Breadboard Setup
