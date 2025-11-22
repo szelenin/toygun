@@ -1,6 +1,6 @@
 /*
- * Toy Gun Turret Control - Step 4a
- * Directional control with relay support for firing
+ * Toy Gun Turret Control - Step 4b
+ * Complete firing system with automatic sequencing
  *
  * Features:
  * - WiFi connection with static IP and mDNS
@@ -11,6 +11,8 @@
  * - Position persistence (survives power cycles)
  * - Auto-save after 3 seconds idle
  * - 2-channel relay control for spinner and trigger motors
+ * - Automatic firing sequence: spinner (250ms) → trigger (100ms) → off
+ * - Shoot button with visual feedback
  *
  * Movement ranges:
  * - Vertical: 75° to 100°
@@ -22,7 +24,7 @@
  * - Relay 1 (Trigger) on GPIO 14
  * - Relay 2 (Spinner) on GPIO 15
  * - Servos powered by 6V buck converter (not ESP32!)
- * - Relays powered by 5V buck converter
+ * - Relays powered by 5V buck converter (active-LOW)
  */
 
 #include <ESP32Servo.h>
@@ -247,7 +249,11 @@ const char* htmlPage = R"rawliteral(
       Release to stop
     </div>
 
-    <button id="btnReset" style="margin-top: 20px; padding: 12px 24px; background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); color: white; border: none; border-radius: 8px; font-size: 1em; cursor: pointer; box-shadow: 0 4px 10px rgba(0,0,0,0.2);">
+    <button id="btnShoot" style="margin-top: 25px; padding: 18px 36px; background: linear-gradient(135deg, #f5576c 0%, #e84118 100%); color: white; border: none; border-radius: 12px; font-size: 1.4em; font-weight: bold; cursor: pointer; box-shadow: 0 6px 15px rgba(232, 65, 24, 0.4); transition: all 0.2s;">
+      🔫 SHOOT
+    </button>
+
+    <button id="btnReset" style="margin-top: 15px; padding: 10px 20px; background: linear-gradient(135deg, #a29bfe 0%, #6c5ce7 100%); color: white; border: none; border-radius: 8px; font-size: 0.9em; cursor: pointer; box-shadow: 0 4px 10px rgba(0,0,0,0.2);">
       🔄 Reset to Center (90°)
     </button>
   </div>
@@ -317,6 +323,35 @@ const char* htmlPage = R"rawliteral(
         btn.classList.remove('pressed');
         stopMove(dir);
       });
+    });
+
+    // Shoot button
+    document.getElementById('btnShoot').addEventListener('click', function() {
+      const btn = this;
+
+      // Disable button during firing sequence
+      btn.disabled = true;
+      btn.style.opacity = '0.5';
+      btn.textContent = '🔫 Firing...';
+
+      fetch('/shoot')
+        .then(response => response.json())
+        .then(data => {
+          console.log('Shoot response:', data);
+          // Re-enable button after sequence completes
+          setTimeout(() => {
+            btn.disabled = false;
+            btn.style.opacity = '1';
+            btn.textContent = '🔫 SHOOT';
+          }, 100);
+        })
+        .catch(err => {
+          console.error('Error:', err);
+          alert('✗ Shoot failed: ' + err);
+          btn.disabled = false;
+          btn.style.opacity = '1';
+          btn.textContent = '🔫 SHOOT';
+        });
     });
 
     // Reset button
@@ -488,6 +523,42 @@ void handleRelay() {
   server.send(200, "application/json", json);
 }
 
+void handleShoot() {
+  Serial.println("\n🎯 FIRING SEQUENCE INITIATED");
+
+  // Step 1: Activate spinner motor (spin up flywheels)
+  digitalWrite(RELAY_PIN_SPINNER, LOW);  // LOW = ON
+  spinnerActive = true;
+  Serial.println("  ⚙️  Spinner: ON (spinning up flywheels...)");
+
+  // Step 2: Wait for flywheels to reach full speed
+  delay(250);  // 250ms spin-up time
+
+  // Step 3: Activate trigger (feed dart into flywheels)
+  digitalWrite(RELAY_PIN_TRIGGER, LOW);  // LOW = ON
+  triggerActive = true;
+  Serial.println("  🔫 Trigger: ON (feeding dart...)");
+
+  // Step 4: Wait for dart to fire
+  delay(100);  // 100ms firing time
+
+  // Step 5: Deactivate trigger
+  digitalWrite(RELAY_PIN_TRIGGER, HIGH);  // HIGH = OFF
+  triggerActive = false;
+  Serial.println("  🔫 Trigger: OFF");
+
+  // Step 6: Deactivate spinner
+  digitalWrite(RELAY_PIN_SPINNER, HIGH);  // HIGH = OFF
+  spinnerActive = false;
+  Serial.println("  ⚙️  Spinner: OFF");
+
+  Serial.println("✅ FIRING SEQUENCE COMPLETE\n");
+
+  // Return success response
+  String json = "{\"status\":\"complete\",\"sequence\":\"spinner→trigger→off\"}";
+  server.send(200, "application/json", json);
+}
+
 void handleNotFound() {
   server.send(404, "text/plain", "404: Not Found");
 }
@@ -495,7 +566,7 @@ void handleNotFound() {
 void setup() {
   // Initialize serial communication for debugging
   Serial.begin(115200);
-  Serial.println("\n\nToy Gun Turret - Step 4a: Relay Control");
+  Serial.println("\n\nToy Gun Turret - Step 4b: Automatic Firing Sequence");
 
   // Load saved positions from flash (or use defaults)
   loadPositions();
@@ -582,6 +653,7 @@ void setup() {
   server.on("/position", handlePosition);
   server.on("/reset", handleReset);
   server.on("/relay", handleRelay);
+  server.on("/shoot", handleShoot);
   server.onNotFound(handleNotFound);
 
   // Start server
