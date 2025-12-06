@@ -178,6 +178,161 @@ Use either:
 - Vin → 5V from LM2596
 - GND → Common ground
 
+## ESP32-CAM Wiring Diagram
+
+When using ESP32-CAM instead of ESP32-WROOM-32E, use this wiring configuration.
+
+**Important Notes:**
+- GPIO 12 must be LOW at boot (servo signal is LOW when idle, so this works)
+- Not using SD card slot (pins repurposed for servos/relays)
+- Camera uses internal pins (no conflict with our GPIOs)
+
+### Pin Mapping (ESP32-CAM)
+
+| Function | GPIO | ESP32-CAM Pin Label |
+|----------|------|---------------------|
+| Horizontal Servo | 12 | IO12 |
+| Vertical Servo | 13 | IO13 |
+| Trigger Relay | 14 | IO14 |
+| Spinner Relay | 15 | IO15 |
+| 5V Power In | - | 5V |
+| Ground | - | GND |
+
+### Schematic Diagram
+
+```
+                                    ┌─────────────────────────────────────────┐
+                                    │           12V 6A POWER SUPPLY           │
+                                    │              (Wall Adapter)             │
+                                    └─────────────┬───────────────┬───────────┘
+                                                  │ +12V          │ GND
+                                                  │               │
+                        ┌─────────────────────────┼───────────────┼─────────────────────────┐
+                        │                         │               │                         │
+                        ▼                         ▼               │                         │
+              ┌──────────────────┐      ┌──────────────────┐      │                         │
+              │  YRDZXG 12V→6V   │      │  LM2596 12V→5V   │      │                         │
+              │  Buck Converter  │      │  Buck Converter  │      │                         │
+              │    (10A, 60W)    │      │     (3A)         │      │                         │
+              └────────┬─────────┘      └────────┬─────────┘      │                         │
+                       │ +6V                     │ +5V            │                         │
+                       │                         │                │                         │
+         ┌─────────────┼─────────────────────────┼────────────────┼─────────────────────────┤
+         │             │                         │                │                         │
+         │   COMMON GROUND ◄─────────────────────┴────────────────┴─────────────────────────┘
+         │             │
+         │             │                    ┌─────────────────────────────────────┐
+         │             │                    │          ESP32-CAM MODULE           │
+         │             │                    │         (with OV2640 Camera)        │
+         │             │                    │                                     │
+         │             │              5V ──►│ 5V                             GND │◄── GND
+         │             │                    │                                     │
+         │             │                    │ IO12 ─────────┐                     │
+         │             │                    │ IO13 ─────────┼──┐                  │
+         │             │                    │ IO14 ─────────┼──┼──┐               │
+         │             │                    │ IO15 ─────────┼──┼──┼──┐            │
+         │             │                    │               │  │  │  │            │
+         │             │                    │    [CAMERA]   │  │  │  │            │
+         │             │                    └───────────────┼──┼──┼──┼────────────┘
+         │             │                                    │  │  │  │
+         │             │              Servo Signals         │  │  │  │    Relay Signals
+         │             │                    │               │  │  │  │         │
+         │             │         ┌──────────┘               │  │  │  └─────────┼──────────┐
+         │             │         │           ┌──────────────┘  │  │            │          │
+         │             │         │           │                 │  │            │          │
+         │             │         ▼           ▼                 │  │            ▼          ▼
+         │             │    ┌─────────┐ ┌─────────┐            │  │     ┌─────────────────────┐
+         │             │    │  SERVO  │ │  SERVO  │            │  │     │   2-CHANNEL RELAY   │
+         │             │    │  HORIZ  │ │  VERT   │            │  │     │       MODULE        │
+         │             │    │ DS3235  │ │ DS3235  │            │  │     │                     │
+         │             │    │         │ │         │            │  │     │ VCC ◄── 5V          │
+         │             │    │ ORG SIG │ │ ORG SIG │            │  │     │ GND ◄── GND         │
+         │             │    │ RED +6V │ │ RED +6V │            │  │     │ IN1 ◄───────────────┘
+         │             │    │ BRN GND │ │ BRN GND │            │  │     │ IN2 ◄──────────────┘
+         │             │    └────┬────┘ └────┬────┘            │  │     │        (IO14: Trigger)
+         │             │         │           │                 │  │     │        (IO15: Spinner)
+         │             │         │           │                 │  │     │                     │
+         │             └─────────┴───────────┘                 │  │     │ [RELAY1]   [RELAY2] │
+         │             (6V Power to Servos)                    │  │     │   COM        COM    │──► To Gun
+         │                                                     │  │     │   NO         NO     │   Motors
+         │                                                     │  │     │   NC         NC     │   (+12V)
+         └─────────────────────────────────────────────────────┴──┴─────┴─────────────────────┘
+                              (Common Ground - ALL devices share this ground)
+
+
+WIRE COLOR GUIDE:
+─────────────────
+  RED ───────── +12V (from power supply)
+  ORANGE ────── +6V (to servos)
+  YELLOW ────── +5V (to ESP32-CAM and relays)
+  BLACK ─────── GND (common ground)
+  WHITE ─────── Signal wires (GPIO to servos/relays)
+
+
+ESP32-CAM PINOUT (Top View, camera facing up):
+──────────────────────────────────────────────
+                    ┌──────────┐
+                    │ [CAMERA] │
+                    │  OV2640  │
+                    └──────────┘
+              ┌─────────────────────┐
+        GND ──┤ GND           5V   ├── 5V
+       IO12 ──┤ IO12         GND   ├── GND (duplicate)
+       IO13 ──┤ IO13         IO15  ├── IO15 ◄── Spinner Relay
+       IO15 ──┤ IO15         IO14  ├── IO14 ◄── Trigger Relay
+       IO14 ──┤ IO14         IO2   ├── IO2
+        IO2 ──┤ IO2          IO4   ├── IO4 (Flash LED)
+        IO4 ──┤ IO4          3V3   ├── 3V3
+              └─────────────────────┘
+                 (USB connector at bottom
+                  when using MB board)
+
+
+CONNECTIONS SUMMARY:
+────────────────────
+┌────────────────────┬────────────────────────────────────────┐
+│ ESP32-CAM Pin      │ Connect To                             │
+├────────────────────┼────────────────────────────────────────┤
+│ 5V                 │ LM2596 5V Output                       │
+│ GND                │ Common Ground                          │
+│ IO12               │ Horizontal Servo Signal (Orange wire)  │
+│ IO13               │ Vertical Servo Signal (Orange wire)    │
+│ IO14               │ Relay Module IN1 (Trigger)             │
+│ IO15               │ Relay Module IN2 (Spinner)             │
+└────────────────────┴────────────────────────────────────────┘
+
+┌────────────────────┬────────────────────────────────────────┐
+│ Servo Wires        │ Connect To                             │
+├────────────────────┼────────────────────────────────────────┤
+│ Orange (Signal)    │ ESP32-CAM GPIO (12 or 13)              │
+│ Red (Power)        │ YRDZXG 6V Output                       │
+│ Brown (Ground)     │ Common Ground                          │
+└────────────────────┴────────────────────────────────────────┘
+
+┌────────────────────┬────────────────────────────────────────┐
+│ Relay Module       │ Connect To                             │
+├────────────────────┼────────────────────────────────────────┤
+│ VCC                │ LM2596 5V Output                       │
+│ GND                │ Common Ground                          │
+│ IN1                │ ESP32-CAM IO14 (Trigger)               │
+│ IN2                │ ESP32-CAM IO15 (Spinner)               │
+│ COM (both)         │ 12V Power Supply +                     │
+│ NO (both)          │ Gun Motor + wires                      │
+│ Gun Motor -        │ 12V Power Supply GND                   │
+└────────────────────┴────────────────────────────────────────┘
+```
+
+### Alternative GPIO Mapping (If Boot Issues)
+
+If you experience boot problems with GPIO 12, use this alternative:
+
+| Function | Original | Alternative |
+|----------|----------|-------------|
+| Horizontal Servo | GPIO 12 | GPIO 2 (onboard LED will blink) |
+| Vertical Servo | GPIO 13 | GPIO 13 (no change) |
+| Trigger Relay | GPIO 14 | GPIO 14 (no change) |
+| Spinner Relay | GPIO 15 | GPIO 4 (flash LED pin) |
+
 ## Assembly Photos
 
 ### Electronics and Breadboard Setup
