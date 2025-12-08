@@ -105,16 +105,29 @@ Reference documentation for the ESP32-WROOM-32E development board.
 To program an ESP32-CAM using ESP32-WROOM-32E as a USB-to-Serial adapter:
 
 ```
-ESP32-WROOM-32E              ESP32-CAM
-───────────────              ─────────
-EN ────→ GND (on WROOM)      (disables WROOM's ESP32 chip)
-TXD0 ─────────────────────→  U0R
-RXD0 ─────────────────────→  U0T
-GND ──────────────────────→  GND
-                             IO0 → GND (on CAM, enables programming mode)
-
-Power ESP32-CAM from external 5V source (LM2596 buck converter)
+ESP32-WROOM-32E              ESP32-CAM              Power Source (LM2596)
+───────────────              ─────────              ─────────────────────
+EN ──────→ GND
+TXD0 (GPIO 1) ────────────→  U0R
+RXD0 (GPIO 3) ────────────→  U0T
+GND ──────────────────────→  GND  ←────────────────  GND
+                             5V   ←────────────────  5V OUT
+                             IO0 ──→ GND (on CAM)
 ```
+
+**Connection Summary:**
+
+| Wire | From | To | Purpose |
+|------|------|-----|---------|
+| 1 | WROOM EN | WROOM GND | Disables ESP32 chip on WROOM |
+| 2 | WROOM TXD0 (GPIO 1) | CAM U0R | Serial data TX → RX |
+| 3 | WROOM RXD0 (GPIO 3) | CAM U0T | Serial data RX → TX |
+| 4 | WROOM GND | CAM GND | Common ground |
+| 5 | LM2596 5V OUT | CAM 5V | Power to ESP32-CAM |
+| 6 | LM2596 GND | CAM GND | Power ground (shared) |
+| 7 | CAM IO0 | CAM GND | Enables programming/flash mode |
+
+**After uploading:** Disconnect IO0 from GND and reset/power-cycle the ESP32-CAM to run normally.
 
 ## Power System Architecture
 
