@@ -72,6 +72,50 @@ This will mount another servo to move the gun vertically:
 | **Charger** | LiPo Balance Charger |
 | **Safety Bag** | LiPo fireproof storage bag |
 
+## Hardware Reference Documentation
+
+### ESP32-WROOM-32E Pinout & Schematic
+
+Reference documentation for the ESP32-WROOM-32E development board.
+
+#### Programming Guide & Resources
+
+![ESP32-WROOM Programming Guide](images/ESP32-WROOM-guide.jpeg)
+*Technical support links, driver download info, and important soldering notes*
+
+#### Board Schematic
+
+![ESP32-WROOM-32E Schematic](images/ESP32-WROOM-schematic.jpeg)
+*Full schematic showing USB-to-TTL (CH340K), power regulation, GPIO headers, and ESP32 module connections*
+
+#### Key Pins Reference (ESP32-WROOM-32E)
+
+| Pin Label | GPIO | Function | Notes |
+|-----------|------|----------|-------|
+| **TXD0** | GPIO 1 | Serial TX | Used for programming/debug |
+| **RXD0** | GPIO 3 | Serial RX | Used for programming/debug |
+| **EN** | - | Enable/Reset | LOW = chip disabled, HIGH = chip enabled |
+| **IO0** | GPIO 0 | Boot Mode | LOW at boot = programming mode |
+| **3V3** | - | 3.3V Output | Regulated power output |
+| **VIN/5V** | - | 5V Input | Direct from USB |
+| **GND** | - | Ground | Common ground |
+
+#### Using ESP32-WROOM-32E as USB-Serial Programmer
+
+To program an ESP32-CAM using ESP32-WROOM-32E as a USB-to-Serial adapter:
+
+```
+ESP32-WROOM-32E              ESP32-CAM
+───────────────              ─────────
+EN ────→ GND (on WROOM)      (disables WROOM's ESP32 chip)
+TXD0 ─────────────────────→  U0R
+RXD0 ─────────────────────→  U0T
+GND ──────────────────────→  GND
+                             IO0 → GND (on CAM, enables programming mode)
+
+Power ESP32-CAM from external 5V source (LM2596 buck converter)
+```
+
 ## Power System Architecture
 
 ```
