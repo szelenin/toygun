@@ -72,63 +72,6 @@ This will mount another servo to move the gun vertically:
 | **Charger** | LiPo Balance Charger |
 | **Safety Bag** | LiPo fireproof storage bag |
 
-## Hardware Reference Documentation
-
-### ESP32-WROOM-32E Pinout & Schematic
-
-Reference documentation for the ESP32-WROOM-32E development board.
-
-#### Programming Guide & Resources
-
-![ESP32-WROOM Programming Guide](images/ESP32-WROOM-guide.jpeg)
-*Technical support links, driver download info, and important soldering notes*
-
-#### Board Schematic
-
-![ESP32-WROOM-32E Schematic](images/ESP32-WROOM-schematic.jpeg)
-*Full schematic showing USB-to-TTL (CH340K), power regulation, GPIO headers, and ESP32 module connections*
-
-#### Key Pins Reference (ESP32-WROOM-32E)
-
-| Pin Label | GPIO | Function | Notes |
-|-----------|------|----------|-------|
-| **TXD0** | GPIO 1 | Serial TX | Used for programming/debug |
-| **RXD0** | GPIO 3 | Serial RX | Used for programming/debug |
-| **EN** | - | Enable/Reset | LOW = chip disabled, HIGH = chip enabled |
-| **IO0** | GPIO 0 | Boot Mode | LOW at boot = programming mode |
-| **3V3** | - | 3.3V Output | Regulated power output |
-| **VIN/5V** | - | 5V Input | Direct from USB |
-| **GND** | - | Ground | Common ground |
-
-#### Using ESP32-WROOM-32E as USB-Serial Programmer
-
-To program an ESP32-CAM using ESP32-WROOM-32E as a USB-to-Serial adapter:
-
-```
-ESP32-WROOM-32E              ESP32-CAM              Power Source (LM2596)
-───────────────              ─────────              ─────────────────────
-EN ──────→ GND
-TXD0 (GPIO 1) ────────────→  U0R
-RXD0 (GPIO 3) ────────────→  U0T
-GND ──────────────────────→  GND  ←────────────────  GND
-                             5V   ←────────────────  5V OUT
-                             IO0 ──→ GND (on CAM)
-```
-
-**Connection Summary:**
-
-| Wire | From | To | Purpose |
-|------|------|-----|---------|
-| 1 | WROOM EN | WROOM GND | Disables ESP32 chip on WROOM |
-| 2 | WROOM TXD0 (GPIO 1) | CAM U0R | Serial data TX → RX |
-| 3 | WROOM RXD0 (GPIO 3) | CAM U0T | Serial data RX → TX |
-| 4 | WROOM GND | CAM GND | Common ground |
-| 5 | LM2596 5V OUT | CAM 5V | Power to ESP32-CAM |
-| 6 | LM2596 GND | CAM GND | Power ground (shared) |
-| 7 | CAM IO0 | CAM GND | Enables programming/flash mode |
-
-**After uploading:** Disconnect IO0 from GND and reset/power-cycle the ESP32-CAM to run normally.
-
 ## Power System Architecture
 
 ```
@@ -466,3 +409,60 @@ If you experience boot problems with GPIO 12, use this alternative:
 5. **Toy gun safety** - Only use in controlled environment, never aim at people without eye protection
 
 lizard rush was here
+
+## Hardware Reference Documentation
+
+### ESP32-WROOM-32E Pinout & Schematic
+
+Reference documentation for the ESP32-WROOM-32E development board.
+
+#### Programming Guide & Resources
+
+![ESP32-WROOM Programming Guide](images/ESP32-WROOM-guide.jpeg)
+*Technical support links, driver download info, and important soldering notes*
+
+#### Board Schematic
+
+![ESP32-WROOM-32E Schematic](images/ESP32-WROOM-schematic.jpeg)
+*Full schematic showing USB-to-TTL (CH340K), power regulation, GPIO headers, and ESP32 module connections*
+
+#### Key Pins Reference (ESP32-WROOM-32E)
+
+| Pin Label | GPIO | Function | Notes |
+|-----------|------|----------|-------|
+| **TXD0** | GPIO 1 | Serial TX | Used for programming/debug |
+| **RXD0** | GPIO 3 | Serial RX | Used for programming/debug |
+| **EN** | - | Enable/Reset | LOW = chip disabled, HIGH = chip enabled |
+| **IO0** | GPIO 0 | Boot Mode | LOW at boot = programming mode |
+| **3V3** | - | 3.3V Output | Regulated power output |
+| **VIN/5V** | - | 5V Input | Direct from USB |
+| **GND** | - | Ground | Common ground |
+
+#### Using ESP32-WROOM-32E as USB-Serial Programmer
+
+To program an ESP32-CAM using ESP32-WROOM-32E as a USB-to-Serial adapter:
+
+```
+ESP32-WROOM-32E              ESP32-CAM              Power Source (LM2596)
+───────────────              ─────────              ─────────────────────
+EN ──────→ GND
+TXD0 (GPIO 1) ────────────→  U0R
+RXD0 (GPIO 3) ────────────→  U0T
+GND ──────────────────────→  GND  ←────────────────  GND
+                             5V   ←────────────────  5V OUT
+                             IO0 ──→ GND (on CAM)
+```
+
+**Connection Summary:**
+
+| Wire | From | To | Purpose |
+|------|------|-----|---------|
+| 1 | WROOM EN | WROOM GND | Disables ESP32 chip on WROOM |
+| 2 | WROOM TXD0 (GPIO 1) | CAM U0R | Serial data TX → RX |
+| 3 | WROOM RXD0 (GPIO 3) | CAM U0T | Serial data RX → TX |
+| 4 | WROOM GND | CAM GND | Common ground |
+| 5 | LM2596 5V OUT | CAM 5V | Power to ESP32-CAM |
+| 6 | LM2596 GND | CAM GND | Power ground (shared) |
+| 7 | CAM IO0 | CAM GND | Enables programming/flash mode |
+
+**After uploading:** Disconnect IO0 from GND and reset/power-cycle the ESP32-CAM to run normally.
