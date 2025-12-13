@@ -326,6 +326,8 @@ const char* htmlPage = R"rawliteral(
     <br>
     <button id="btnLight" style="margin-top: 10px; padding: 10px 20px; background: linear-gradient(135deg, #ffecd2 0%, #fcb69f 100%); color: #333; border: none; border-radius: 8px; font-size: 0.95em; cursor: pointer; box-shadow: 0 4px 10px rgba(0,0,0,0.2);">💡 Light OFF</button>
     <button id="btnReset" style="margin-left: 10px; margin-top: 10px; padding: 10px 16px; background: linear-gradient(135deg, #a29bfe 0%, #6c5ce7 100%); color: white; border: none; border-radius: 8px; font-size: 0.85em; cursor: pointer;">🔄 Reset</button>
+    <br>
+    <a href="/admin" style="display: inline-block; margin-top: 15px; color: #667eea; font-size: 0.85em;">⚙️ Admin Settings</a>
   </div>
 
   <script>
@@ -418,6 +420,166 @@ const char* htmlPage = R"rawliteral(
 )rawliteral";
 
 // ===========================
+// Admin page HTML
+// ===========================
+const char* adminPage = R"rawliteral(
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Turret Admin</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: Arial, sans-serif;
+      padding: 20px;
+      background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+      min-height: 100vh;
+      color: white;
+    }
+    h1 { margin-bottom: 20px; }
+    .container {
+      background: rgba(255,255,255,0.1);
+      padding: 20px;
+      border-radius: 15px;
+      max-width: 500px;
+      margin: 0 auto;
+    }
+    .stat {
+      display: flex;
+      justify-content: space-between;
+      padding: 12px;
+      background: rgba(0,0,0,0.3);
+      border-radius: 8px;
+      margin-bottom: 10px;
+    }
+    .stat-value { font-weight: bold; color: #4ade80; }
+    .stat-value.warning { color: #fbbf24; }
+    .stat-value.bad { color: #f87171; }
+    label { display: block; margin: 15px 0 5px; font-weight: bold; }
+    select, input[type=range] {
+      width: 100%;
+      padding: 10px;
+      border-radius: 8px;
+      border: none;
+      font-size: 1em;
+    }
+    input[type=range] { padding: 5px; }
+    .quality-value { text-align: center; font-size: 1.2em; margin: 5px 0; }
+    button {
+      width: 100%;
+      padding: 15px;
+      margin-top: 20px;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      border: none;
+      border-radius: 10px;
+      font-size: 1.1em;
+      cursor: pointer;
+    }
+    button:active { transform: scale(0.98); }
+    .back-link {
+      display: block;
+      text-align: center;
+      margin-top: 15px;
+      color: #a5b4fc;
+    }
+    .hint { font-size: 0.8em; color: #888; margin-top: 3px; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>⚙️ Admin Panel</h1>
+
+    <div class="stat">
+      <span>WiFi Signal (RSSI)</span>
+      <span class="stat-value" id="rssi">-- dBm</span>
+    </div>
+    <div class="stat">
+      <span>Stream FPS</span>
+      <span class="stat-value" id="fps">-- fps</span>
+    </div>
+    <div class="stat">
+      <span>Frame Size</span>
+      <span class="stat-value" id="frameSize">--</span>
+    </div>
+
+    <label>Resolution</label>
+    <select id="resolution">
+      <option value="4">QVGA (320x240) - Fastest</option>
+      <option value="5">CIF (400x296)</option>
+      <option value="6">HVGA (480x320)</option>
+      <option value="8">VGA (640x480) - Default</option>
+      <option value="9">SVGA (800x600)</option>
+      <option value="10">XGA (1024x768)</option>
+      <option value="12">SXGA (1280x1024)</option>
+      <option value="13">UXGA (1600x1200) - Slowest</option>
+    </select>
+    <div class="hint">Lower = faster streaming, less detail</div>
+
+    <label>JPEG Quality: <span id="qualityVal">12</span></label>
+    <input type="range" id="quality" min="10" max="63" value="12">
+    <div class="hint">10 = best quality (slow), 63 = most compressed (fast)</div>
+
+    <button id="btnApply">Apply Settings</button>
+
+    <a href="/" class="back-link">← Back to Control</a>
+  </div>
+
+  <script>
+    // Update stats
+    function updateStats() {
+      fetch('/stats')
+        .then(r => r.json())
+        .then(data => {
+          const rssiEl = document.getElementById('rssi');
+          rssiEl.textContent = data.rssi + ' dBm';
+          rssiEl.className = 'stat-value' + (data.rssi > -60 ? '' : data.rssi > -75 ? ' warning' : ' bad');
+
+          const fpsEl = document.getElementById('fps');
+          fpsEl.textContent = data.fps.toFixed(1) + ' fps';
+          fpsEl.className = 'stat-value' + (data.fps > 15 ? '' : data.fps > 8 ? ' warning' : ' bad');
+
+          document.getElementById('frameSize').textContent = data.frameWidth + 'x' + data.frameHeight;
+          document.getElementById('resolution').value = data.framesize;
+          document.getElementById('quality').value = data.quality;
+          document.getElementById('qualityVal').textContent = data.quality;
+        })
+        .catch(err => console.error('Error:', err));
+    }
+
+    // Quality slider
+    document.getElementById('quality').addEventListener('input', (e) => {
+      document.getElementById('qualityVal').textContent = e.target.value;
+    });
+
+    // Apply settings
+    document.getElementById('btnApply').addEventListener('click', () => {
+      const resolution = document.getElementById('resolution').value;
+      const quality = document.getElementById('quality').value;
+      fetch('/config?framesize=' + resolution + '&quality=' + quality)
+        .then(r => r.json())
+        .then(data => {
+          alert('Settings applied! Refresh stream to see changes.');
+          updateStats();
+        })
+        .catch(err => alert('Error: ' + err));
+    });
+
+    setInterval(updateStats, 1000);
+    updateStats();
+  </script>
+</body>
+</html>
+)rawliteral";
+
+// FPS tracking
+volatile float currentFPS = 0;
+volatile unsigned long lastFrameTime = 0;
+volatile unsigned long frameCount = 0;
+
+// ===========================
 // Camera stream handler
 // ===========================
 static esp_err_t stream_handler(httpd_req_t *req) {
@@ -471,6 +633,15 @@ static esp_err_t stream_handler(httpd_req_t *req) {
     }
     if (res != ESP_OK) {
       break;
+    }
+
+    // FPS tracking
+    frameCount++;
+    unsigned long now = millis();
+    if (now - lastFrameTime >= 1000) {
+      currentFPS = frameCount * 1000.0 / (now - lastFrameTime);
+      frameCount = 0;
+      lastFrameTime = now;
     }
   }
   return res;
@@ -596,6 +767,57 @@ void handleLED() {
   }
 }
 
+void handleAdmin() {
+  server.send(200, "text/html", adminPage);
+}
+
+void handleStats() {
+  sensor_t *s = esp_camera_sensor_get();
+
+  // Get frame dimensions based on framesize
+  int frameWidth = 0, frameHeight = 0;
+  switch(s->status.framesize) {
+    case 4: frameWidth = 320; frameHeight = 240; break;   // QVGA
+    case 5: frameWidth = 400; frameHeight = 296; break;   // CIF
+    case 6: frameWidth = 480; frameHeight = 320; break;   // HVGA
+    case 8: frameWidth = 640; frameHeight = 480; break;   // VGA
+    case 9: frameWidth = 800; frameHeight = 600; break;   // SVGA
+    case 10: frameWidth = 1024; frameHeight = 768; break; // XGA
+    case 12: frameWidth = 1280; frameHeight = 1024; break;// SXGA
+    case 13: frameWidth = 1600; frameHeight = 1200; break;// UXGA
+    default: frameWidth = 640; frameHeight = 480;
+  }
+
+  String json = "{";
+  json += "\"rssi\":" + String(WiFi.RSSI()) + ",";
+  json += "\"fps\":" + String(currentFPS, 1) + ",";
+  json += "\"framesize\":" + String(s->status.framesize) + ",";
+  json += "\"quality\":" + String(s->status.quality) + ",";
+  json += "\"frameWidth\":" + String(frameWidth) + ",";
+  json += "\"frameHeight\":" + String(frameHeight);
+  json += "}";
+
+  server.send(200, "application/json", json);
+}
+
+void handleConfig() {
+  sensor_t *s = esp_camera_sensor_get();
+
+  if (server.hasArg("framesize")) {
+    int framesize = server.arg("framesize").toInt();
+    s->set_framesize(s, (framesize_t)framesize);
+    Serial.printf("Set framesize to %d\n", framesize);
+  }
+
+  if (server.hasArg("quality")) {
+    int quality = server.arg("quality").toInt();
+    s->set_quality(s, quality);
+    Serial.printf("Set quality to %d\n", quality);
+  }
+
+  server.send(200, "application/json", "{\"success\":true}");
+}
+
 void handleNotFound() {
   server.send(404, "text/plain", "404: Not Found");
 }
@@ -699,6 +921,7 @@ void setup() {
 
     Serial.println("\nAccess points:");
     Serial.printf("  Control UI: http://%s\n", WiFi.localIP().toString().c_str());
+    Serial.printf("  Admin: http://%s/admin\n", WiFi.localIP().toString().c_str());
     Serial.printf("  Stream: http://%s:81/stream\n", WiFi.localIP().toString().c_str());
   } else {
     Serial.println("\nWiFi connection failed!");
@@ -711,6 +934,9 @@ void setup() {
   server.on("/reset", handleReset);
   server.on("/shoot", handleShoot);
   server.on("/led", handleLED);
+  server.on("/admin", handleAdmin);
+  server.on("/stats", handleStats);
+  server.on("/config", handleConfig);
   server.onNotFound(handleNotFound);
 
   server.begin();
