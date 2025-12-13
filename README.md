@@ -199,27 +199,41 @@ When using ESP32-CAM instead of ESP32-WROOM-32E, use this wiring configuration.
 | 5V Power In | - | 5V |
 | Ground | - | GND |
 
-ESP32-CAM PINOUT (Top View, camera facing up):
-──────────────────────────────────────────────
-                    ┌──────────┐
-                    │ [CAMERA] │
-                    │  OV2640  │
-                    └──────────┘
-              ┌─────────────────────┐
-        GND ──┤ GND           5V   ├── 5V ◄── LM2596 5V Out
-             ─┤ IO12         GND   ├── GND ◄── Common Ground
-             ─┤ IO13         IO15  ├── IO15 ◄── Spinner Relay (IN2)
-             ─┤ IO15         IO14  ├── IO14 ◄── Trigger Relay (IN1)
-             ─┤ IO14         IO2   ├── IO2
-             ─┤ IO2          IO4   ├── IO4 (Flash LED)
-             ─┤ IO4          3V3   ├── 3V3
-              └─────────────────────┘
-                │      │
-                │      └── IO13 ◄── Vertical Servo Signal (orange)
-                └── IO12 ◄── Horizontal Servo Signal (orange)
+### ESP32-CAM Wiring Diagram
 
-                 (USB connector at bottom
-                  when using MB board)
+```mermaid
+flowchart LR
+    subgraph Power
+        LM[LM2596 5V Out]
+        CG[Common Ground]
+    end
+
+    subgraph ESP32-CAM
+        V5[5V]
+        GND[GND]
+        IO12[IO12]
+        IO13[IO13]
+        IO14[IO14]
+        IO15[IO15]
+    end
+
+    subgraph Servos
+        HS[Horizontal Servo Signal]
+        VS[Vertical Servo Signal]
+    end
+
+    subgraph Relays
+        R1[Trigger Relay IN1]
+        R2[Spinner Relay IN2]
+    end
+
+    LM --> V5
+    CG --> GND
+    IO12 --> HS
+    IO13 --> VS
+    IO14 --> R1
+    IO15 --> R2
+```
 
 
 CONNECTIONS SUMMARY:
