@@ -12,6 +12,7 @@
  * - Auto-save after 3 seconds idle
  * - 2-channel relay control for spinner and trigger motors
  * - Press-and-hold trigger: Hold to fire continuously, release to stop instantly
+ * - Flash LED control (GPIO 4) for night vision
  *
  * Movement ranges:
  * - Vertical: 75° to 100°
@@ -75,6 +76,7 @@ IPAddress secondaryDNS(8, 8, 8, 8);
 #define SERVO_PIN_VERTICAL   13
 #define RELAY_PIN_SPINNER    15
 #define RELAY_PIN_TRIGGER    14
+#define LED_FLASH_PIN         4  // Flash LED on ESP32-CAM
 
 // Servo objects
 Servo horizontalServo;
@@ -83,6 +85,9 @@ Servo verticalServo;
 // Relay state
 bool spinnerActive = false;
 bool triggerActive = false;
+
+// Flash LED state
+bool ledActive = false;
 
 // Webserver for control UI (port 80)
 WebServer server(80);
@@ -319,7 +324,8 @@ const char* htmlPage = R"rawliteral(
 
     <button id="btnShoot">🔫 SHOOT</button>
     <br>
-    <button id="btnReset">🔄 Reset to Center</button>
+    <button id="btnLight" style="margin-top: 10px; padding: 10px 20px; background: linear-gradient(135deg, #ffecd2 0%, #fcb69f 100%); color: #333; border: none; border-radius: 8px; font-size: 0.95em; cursor: pointer; box-shadow: 0 4px 10px rgba(0,0,0,0.2);">💡 Light OFF</button>
+    <button id="btnReset" style="margin-left: 10px; margin-top: 10px; padding: 10px 16px; background: linear-gradient(135deg, #a29bfe 0%, #6c5ce7 100%); color: white; border: none; border-radius: 8px; font-size: 0.85em; cursor: pointer;">🔄 Reset</button>
   </div>
 
   <script>
@@ -381,6 +387,21 @@ const char* htmlPage = R"rawliteral(
     btnShoot.addEventListener('mouseleave', stopFiring);
     btnShoot.addEventListener('touchstart', (e) => { e.preventDefault(); startFiring(); });
     btnShoot.addEventListener('touchend', (e) => { e.preventDefault(); stopFiring(); });
+
+    // Light toggle button
+    const btnLight = document.getElementById('btnLight');
+    let lightOn = false;
+    btnLight.addEventListener('click', () => {
+      lightOn = !lightOn;
+      fetch('/led?state=' + (lightOn ? 'on' : 'off'))
+        .then(() => {
+          btnLight.textContent = lightOn ? '💡 Light ON' : '💡 Light OFF';
+          btnLight.style.background = lightOn
+            ? 'linear-gradient(135deg, #f9d423 0%, #ff4e00 100%)'
+            : 'linear-gradient(135deg, #ffecd2 0%, #fcb69f 100%)';
+        })
+        .catch(err => console.error('Error:', err));
+    });
 
     // Reset button
     document.getElementById('btnReset').addEventListener('click', () => {
@@ -556,6 +577,25 @@ void handleShoot() {
   }
 }
 
+void handleLED() {
+  if (server.hasArg("state")) {
+    String state = server.arg("state");
+    if (state == "on") {
+      digitalWrite(LED_FLASH_PIN, HIGH);
+      ledActive = true;
+      Serial.println("LED ON");
+      server.send(200, "application/json", "{\"led\":true}");
+    } else if (state == "off") {
+      digitalWrite(LED_FLASH_PIN, LOW);
+      ledActive = false;
+      Serial.println("LED OFF");
+      server.send(200, "application/json", "{\"led\":false}");
+    }
+  } else {
+    server.send(400, "text/plain", "Missing state parameter");
+  }
+}
+
 void handleNotFound() {
   server.send(404, "text/plain", "404: Not Found");
 }
@@ -627,7 +667,11 @@ void setup() {
   digitalWrite(RELAY_PIN_SPINNER, HIGH);
   digitalWrite(RELAY_PIN_TRIGGER, HIGH);
 
-  Serial.println("Servos and relays initialized");
+  // Initialize flash LED pin
+  pinMode(LED_FLASH_PIN, OUTPUT);
+  digitalWrite(LED_FLASH_PIN, LOW);
+
+  Serial.println("Servos, relays, and LED initialized");
 
   // Configure static IP
   if (!WiFi.config(local_IP, gateway, subnet, primaryDNS, secondaryDNS)) {
@@ -666,6 +710,7 @@ void setup() {
   server.on("/position", handlePosition);
   server.on("/reset", handleReset);
   server.on("/shoot", handleShoot);
+  server.on("/led", handleLED);
   server.onNotFound(handleNotFound);
 
   server.begin();
