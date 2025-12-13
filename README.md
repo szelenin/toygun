@@ -235,41 +235,6 @@ flowchart LR
     IO15 --> R2
 ```
 
-
-CONNECTIONS SUMMARY:
-────────────────────
-┌────────────────────┬────────────────────────────────────────┐
-│ ESP32-CAM Pin      │ Connect To                             │
-├────────────────────┼────────────────────────────────────────┤
-│ 5V                 │ LM2596 5V Output                       │
-│ GND                │ Common Ground                          │
-│ IO12               │ Horizontal Servo Signal (Orange wire)  │
-│ IO13               │ Vertical Servo Signal (Orange wire)    │
-│ IO14               │ Relay Module IN1 (Trigger)             │
-│ IO15               │ Relay Module IN2 (Spinner)             │
-└────────────────────┴────────────────────────────────────────┘
-
-┌────────────────────┬────────────────────────────────────────┐
-│ Servo Wires        │ Connect To                             │
-├────────────────────┼────────────────────────────────────────┤
-│ Orange (Signal)    │ ESP32-CAM GPIO (12 or 13)              │
-│ Red (Power)        │ YRDZXG 6V Output                       │
-│ Brown (Ground)     │ Common Ground                          │
-└────────────────────┴────────────────────────────────────────┘
-
-┌────────────────────┬────────────────────────────────────────┐
-│ Relay Module       │ Connect To                             │
-├────────────────────┼────────────────────────────────────────┤
-│ VCC                │ LM2596 5V Output                       │
-│ GND                │ Common Ground                          │
-│ IN1                │ ESP32-CAM IO14 (Trigger)               │
-│ IN2                │ ESP32-CAM IO15 (Spinner)               │
-│ COM (both)         │ 12V Power Supply +                     │
-│ NO (both)          │ Gun Motor + wires                      │
-│ Gun Motor -        │ 12V Power Supply GND                   │
-└────────────────────┴────────────────────────────────────────┘
-```
-
 ### Alternative GPIO Mapping (If Boot Issues)
 
 If you experience boot problems with GPIO 12, use this alternative:
