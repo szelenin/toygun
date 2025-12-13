@@ -1,9 +1,9 @@
 /*
- * Toy Gun Turret Control - Step 4b
- * Complete firing system with automatic sequencing
+ * Toy Gun Turret Control - Step 6
+ * ESP32-CAM with camera streaming and turret control
  *
  * Features:
- * - WiFi connection with static IP and mDNS
+ * - Live camera stream on port 81
  * - Web interface with directional control buttons
  * - Press and hold button to move servo
  * - Release button to stop movement
@@ -11,8 +11,7 @@
  * - Position persistence (survives power cycles)
  * - Auto-save after 3 seconds idle
  * - 2-channel relay control for spinner and trigger motors
- * - Automatic firing sequence: spinner (250ms) → trigger (100ms) → off
- * - Shoot button with visual feedback
+ * - Press-and-hold trigger: Hold to fire continuously, release to stop instantly
  *
  * Movement ranges:
  * - Vertical: 75° to 100°
@@ -23,15 +22,39 @@
  * - Vertical servo on GPIO 13
  * - Relay 1 (Trigger) on GPIO 14
  * - Relay 2 (Spinner) on GPIO 15
+ * - OV2640 Camera (internal ESP32-CAM pins)
  * - Servos powered by 6V buck converter (not ESP32!)
  * - Relays powered by 5V buck converter (active-LOW)
  */
 
+#include "esp_camera.h"
+#include "esp_http_server.h"
 #include <ESP32Servo.h>
 #include <WiFi.h>
 #include <WebServer.h>
 #include <ESPmDNS.h>
 #include <Preferences.h>
+
+// ===========================
+// AI Thinker ESP32-CAM pin definitions
+// ===========================
+#define PWDN_GPIO_NUM     32
+#define RESET_GPIO_NUM    -1
+#define XCLK_GPIO_NUM      0
+#define SIOD_GPIO_NUM     26
+#define SIOC_GPIO_NUM     27
+
+#define Y9_GPIO_NUM       35
+#define Y8_GPIO_NUM       34
+#define Y7_GPIO_NUM       39
+#define Y6_GPIO_NUM       36
+#define Y5_GPIO_NUM       21
+#define Y4_GPIO_NUM       19
+#define Y3_GPIO_NUM       18
+#define Y2_GPIO_NUM        5
+#define VSYNC_GPIO_NUM    25
+#define HREF_GPIO_NUM     23
+#define PCLK_GPIO_NUM     22
 
 // ===========================
 // WiFi credentials
@@ -41,53 +64,49 @@ const char* password = "Password!23";
 const char* hostname = "lizardgun3000";  // Access via http://lizardgun3000.local
 
 // Static IP configuration (optional - comment out to use DHCP)
-// How to find these values:
-//   Mac: System Settings → Network → WiFi → Details
-//   iPhone: Settings → WiFi → (i) button → Look for Router, Subnet Mask, DNS
-//   Windows: ipconfig /all in Command Prompt
-IPAddress local_IP(192, 168, 86, 42);      // Your desired static IP
-IPAddress gateway(192, 168, 86, 1);        // Your router IP (check your network settings)
-IPAddress subnet(255, 255, 255, 0);        // Subnet mask (typically 255.255.255.0)
-IPAddress primaryDNS(192, 168, 86, 1);     // DNS server (typically same as gateway for home routers)
-IPAddress secondaryDNS(8, 8, 8, 8);        // Fallback DNS (Google's public DNS)
+IPAddress local_IP(192, 168, 86, 42);
+IPAddress gateway(192, 168, 86, 1);
+IPAddress subnet(255, 255, 255, 0);
+IPAddress primaryDNS(192, 168, 86, 1);
+IPAddress secondaryDNS(8, 8, 8, 8);
 
-// GPIO pin definitions
+// GPIO pin definitions for servos and relays
 #define SERVO_PIN_HORIZONTAL 12
 #define SERVO_PIN_VERTICAL   13
-#define RELAY_PIN_SPINNER    15  // Relay 2 - controls spinner motor
-#define RELAY_PIN_TRIGGER    14  // Relay 1 - controls trigger motor
+#define RELAY_PIN_SPINNER    15
+#define RELAY_PIN_TRIGGER    14
 
 // Servo objects
 Servo horizontalServo;
 Servo verticalServo;
 
-// Relay state (LOW = OFF, HIGH = ON)
+// Relay state
 bool spinnerActive = false;
 bool triggerActive = false;
 
-// Webserver
+// Webserver for control UI (port 80)
 WebServer server(80);
+
+// Stream server handle (port 81)
+httpd_handle_t stream_httpd = NULL;
 
 // Preferences for position persistence
 Preferences preferences;
 
-// Movement ranges - center positions
+// Movement ranges
 const int HORIZONTAL_CENTER = 90;
 const int VERTICAL_CENTER = 90;
+const int HORIZONTAL_RANGE = 90;
+const int VERTICAL_RANGE = 15;
 
-// Movement range offsets
-const int HORIZONTAL_RANGE = 90;  // ±90° from center
-const int VERTICAL_RANGE = 15;    // ±15° from center
+const int HORIZONTAL_MIN = max(0, HORIZONTAL_CENTER - HORIZONTAL_RANGE);
+const int HORIZONTAL_MAX = min(180, HORIZONTAL_CENTER + HORIZONTAL_RANGE);
+const int VERTICAL_MIN = max(0, VERTICAL_CENTER - VERTICAL_RANGE);
+const int VERTICAL_MAX = 100;
 
-// Calculated min/max positions
-const int HORIZONTAL_MIN = max(0, HORIZONTAL_CENTER - HORIZONTAL_RANGE);      // 0° (clamped)
-const int HORIZONTAL_MAX = min(180, HORIZONTAL_CENTER + HORIZONTAL_RANGE);    // 180°
-const int VERTICAL_MIN = max(0, VERTICAL_CENTER - VERTICAL_RANGE);            // 75°
-const int VERTICAL_MAX = 100;                                                 // 100° (restricted lower limit)
-
-// Current angle variables (tracking servo positions)
-int horizontalAngle = HORIZONTAL_CENTER;  // Start at center
-int verticalAngle = VERTICAL_CENTER;      // Start at center
+// Current angle variables
+int horizontalAngle = HORIZONTAL_CENTER;
+int verticalAngle = VERTICAL_CENTER;
 
 // Movement control
 bool movingUp = false;
@@ -96,17 +115,25 @@ bool movingLeft = false;
 bool movingRight = false;
 
 unsigned long lastMoveTime = 0;
-const int MOVE_DELAY = 40;  // milliseconds between each degree of movement (slower = higher value)
-const int MOVE_STEP = 1;    // degrees to move per step
+const int MOVE_DELAY = 40;
+const int MOVE_STEP = 1;
 
 // Position persistence
 unsigned long lastActivityTime = 0;
-const unsigned long SAVE_DELAY = 3000;  // Save 3 seconds after last movement
+const unsigned long SAVE_DELAY = 3000;
 bool positionChanged = false;
-bool positionsSaved = true;  // Start as true (no unsaved changes)
+bool positionsSaved = true;
 
 // ===========================
-// HTML webpage
+// Camera stream constants
+// ===========================
+#define PART_BOUNDARY "123456789000000000000987654321"
+static const char* _STREAM_CONTENT_TYPE = "multipart/x-mixed-replace;boundary=" PART_BOUNDARY;
+static const char* _STREAM_BOUNDARY = "\r\n--" PART_BOUNDARY "\r\n";
+static const char* _STREAM_PART = "Content-Type: image/jpeg\r\nContent-Length: %u\r\n\r\n";
+
+// ===========================
+// HTML webpage with camera stream
 // ===========================
 const char* htmlPage = R"rawliteral(
 <!DOCTYPE html>
@@ -127,27 +154,71 @@ const char* htmlPage = R"rawliteral(
     body {
       font-family: Arial, sans-serif;
       text-align: center;
-      padding: 20px;
+      padding: 10px;
       background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
       min-height: 100vh;
     }
     h1 {
       color: white;
-      margin-bottom: 20px;
+      margin-bottom: 10px;
       text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+      font-size: 1.5em;
     }
     .container {
       background-color: #fff;
-      padding: 20px;
+      padding: 15px;
       border-radius: 15px;
       margin: 0 auto;
-      max-width: 400px;
+      max-width: 500px;
       box-shadow: 0 4px 15px rgba(0,0,0,0.3);
     }
+    .video-container {
+      background: #000;
+      border-radius: 10px;
+      overflow: hidden;
+      margin-bottom: 15px;
+      position: relative;
+    }
+    .video-container img {
+      width: 100%;
+      height: auto;
+      display: block;
+    }
+    .crosshair {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      pointer-events: none;
+    }
+    .crosshair::before,
+    .crosshair::after {
+      content: '';
+      position: absolute;
+      background: rgba(255, 0, 0, 0.8);
+    }
+    .crosshair::before {
+      width: 2px;
+      height: 40px;
+      left: 50%;
+      top: 50%;
+      transform: translate(-50%, -50%);
+    }
+    .crosshair::after {
+      width: 40px;
+      height: 2px;
+      left: 50%;
+      top: 50%;
+      transform: translate(-50%, -50%);
+    }
+    .status-row {
+      display: flex;
+      justify-content: space-around;
+      margin-bottom: 10px;
+    }
     .status {
-      font-size: 1.3em;
-      margin: 15px 0;
-      padding: 10px;
+      font-size: 1em;
+      padding: 8px 15px;
       background-color: #f8f9fa;
       border-radius: 8px;
       color: #333;
@@ -157,18 +228,18 @@ const char* htmlPage = R"rawliteral(
       color: #667eea;
     }
     .controls {
-      margin: 30px auto;
-      width: 200px;
-      height: 200px;
+      margin: 15px auto;
+      width: 180px;
+      height: 180px;
       position: relative;
     }
     .btn {
       position: absolute;
-      width: 60px;
-      height: 60px;
+      width: 55px;
+      height: 55px;
       border: none;
       border-radius: 10px;
-      font-size: 24px;
+      font-size: 22px;
       cursor: pointer;
       background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
       color: white;
@@ -178,62 +249,64 @@ const char* htmlPage = R"rawliteral(
       align-items: center;
       justify-content: center;
     }
-    .btn:active {
+    .btn:active, .btn.pressed {
       transform: scale(0.95);
-      box-shadow: 0 2px 5px rgba(0,0,0,0.3);
-    }
-    .btn.pressed {
       background: linear-gradient(135deg, #764ba2 0%, #667eea 100%);
-      transform: scale(0.95);
     }
-    #btnUp {
-      top: 0;
-      left: 50%;
-      transform: translateX(-50%);
-    }
-    #btnDown {
-      bottom: 0;
-      left: 50%;
-      transform: translateX(-50%);
-    }
-    #btnLeft {
-      left: 0;
-      top: 50%;
-      transform: translateY(-50%);
-    }
-    #btnRight {
-      right: 0;
-      top: 50%;
-      transform: translateY(-50%);
-    }
+    #btnUp { top: 0; left: 50%; transform: translateX(-50%); }
+    #btnDown { bottom: 0; left: 50%; transform: translateX(-50%); }
+    #btnLeft { left: 0; top: 50%; transform: translateY(-50%); }
+    #btnRight { right: 0; top: 50%; transform: translateY(-50%); }
+    #btnUp.pressed, #btnDown.pressed { transform: translateX(-50%) scale(0.95); }
+    #btnLeft.pressed, #btnRight.pressed { transform: translateY(-50%) scale(0.95); }
     .center-dot {
       position: absolute;
-      width: 20px;
-      height: 20px;
+      width: 18px;
+      height: 18px;
       background-color: #ddd;
       border-radius: 50%;
       top: 50%;
       left: 50%;
       transform: translate(-50%, -50%);
     }
-    .info {
-      margin-top: 20px;
-      padding: 10px;
-      background-color: #f8f9fa;
+    #btnShoot {
+      margin-top: 15px;
+      padding: 15px 30px;
+      background: linear-gradient(135deg, #f5576c 0%, #e84118 100%);
+      color: white;
+      border: none;
+      border-radius: 12px;
+      font-size: 1.3em;
+      font-weight: bold;
+      cursor: pointer;
+      box-shadow: 0 6px 15px rgba(232, 65, 24, 0.4);
+    }
+    #btnShoot:active, #btnShoot.pressed {
+      transform: scale(0.95);
+    }
+    #btnReset {
+      margin-top: 10px;
+      padding: 8px 16px;
+      background: linear-gradient(135deg, #a29bfe 0%, #6c5ce7 100%);
+      color: white;
+      border: none;
       border-radius: 8px;
-      font-size: 0.9em;
-      color: #666;
+      font-size: 0.85em;
+      cursor: pointer;
     }
   </style>
 </head>
 <body>
   <h1>🎯 Toy Gun Turret</h1>
   <div class="container">
-    <div class="status">
-      Horizontal: <span id="hAngle">90</span>°
+    <div class="video-container">
+      <img id="stream" src="">
+      <div class="crosshair"></div>
     </div>
-    <div class="status">
-      Vertical: <span id="vAngle">90</span>°
+
+    <div class="status-row">
+      <div class="status">H: <span id="hAngle">90</span>°</div>
+      <div class="status">V: <span id="vAngle">90</span>°</div>
     </div>
 
     <div class="controls">
@@ -244,30 +317,22 @@ const char* htmlPage = R"rawliteral(
       <div class="center-dot"></div>
     </div>
 
-    <div class="info">
-      Press and hold buttons to move<br>
-      Release to stop
-    </div>
-
-    <button id="btnShoot" style="margin-top: 25px; padding: 18px 36px; background: linear-gradient(135deg, #f5576c 0%, #e84118 100%); color: white; border: none; border-radius: 12px; font-size: 1.4em; font-weight: bold; cursor: pointer; box-shadow: 0 6px 15px rgba(232, 65, 24, 0.4); transition: all 0.2s;">
-      🔫 SHOOT
-    </button>
-
-    <button id="btnReset" style="margin-top: 15px; padding: 10px 20px; background: linear-gradient(135deg, #a29bfe 0%, #6c5ce7 100%); color: white; border: none; border-radius: 8px; font-size: 0.9em; cursor: pointer; box-shadow: 0 4px 10px rgba(0,0,0,0.2);">
-      🔄 Reset to Center (90°)
-    </button>
+    <button id="btnShoot">🔫 SHOOT</button>
+    <br>
+    <button id="btnReset">🔄 Reset to Center</button>
   </div>
 
   <script>
+    // Set stream source to port 81
+    const streamUrl = 'http://' + window.location.hostname + ':81/stream';
+    document.getElementById('stream').src = streamUrl;
+
     // Movement control functions
     function startMove(direction) {
-      fetch('/move?dir=' + direction + '&state=1')
-        .catch(err => console.error('Error:', err));
+      fetch('/move?dir=' + direction + '&state=1').catch(err => console.error('Error:', err));
     }
-
     function stopMove(direction) {
-      fetch('/move?dir=' + direction + '&state=0')
-        .catch(err => console.error('Error:', err));
+      fetch('/move?dir=' + direction + '&state=0').catch(err => console.error('Error:', err));
     }
 
     // Update position display
@@ -281,144 +346,154 @@ const char* htmlPage = R"rawliteral(
         .catch(err => console.error('Error:', err));
     }
 
-    // Setup buttons
-    const buttons = {
-      btnUp: 'up',
-      btnDown: 'down',
-      btnLeft: 'left',
-      btnRight: 'right'
-    };
-
+    // Setup direction buttons
+    const buttons = { btnUp: 'up', btnDown: 'down', btnLeft: 'left', btnRight: 'right' };
     Object.keys(buttons).forEach(btnId => {
       const btn = document.getElementById(btnId);
       const dir = buttons[btnId];
-
-      // Mouse events
-      btn.addEventListener('mousedown', () => {
-        btn.classList.add('pressed');
-        startMove(dir);
-      });
-      btn.addEventListener('mouseup', () => {
-        btn.classList.remove('pressed');
-        stopMove(dir);
-      });
-      btn.addEventListener('mouseleave', () => {
-        btn.classList.remove('pressed');
-        stopMove(dir);
-      });
-
-      // Touch events for mobile
-      btn.addEventListener('touchstart', (e) => {
-        e.preventDefault();
-        btn.classList.add('pressed');
-        startMove(dir);
-      });
-      btn.addEventListener('touchend', (e) => {
-        e.preventDefault();
-        btn.classList.remove('pressed');
-        stopMove(dir);
-      });
-      btn.addEventListener('touchcancel', (e) => {
-        e.preventDefault();
-        btn.classList.remove('pressed');
-        stopMove(dir);
-      });
+      btn.addEventListener('mousedown', () => { btn.classList.add('pressed'); startMove(dir); });
+      btn.addEventListener('mouseup', () => { btn.classList.remove('pressed'); stopMove(dir); });
+      btn.addEventListener('mouseleave', () => { btn.classList.remove('pressed'); stopMove(dir); });
+      btn.addEventListener('touchstart', (e) => { e.preventDefault(); btn.classList.add('pressed'); startMove(dir); });
+      btn.addEventListener('touchend', (e) => { e.preventDefault(); btn.classList.remove('pressed'); stopMove(dir); });
+      btn.addEventListener('touchcancel', (e) => { e.preventDefault(); btn.classList.remove('pressed'); stopMove(dir); });
     });
 
     // Shoot button
-    document.getElementById('btnShoot').addEventListener('click', function() {
-      const btn = this;
-
-      // Disable button during firing sequence
-      btn.disabled = true;
-      btn.style.opacity = '0.5';
-      btn.textContent = '🔫 Firing...';
-
-      fetch('/shoot')
-        .then(response => response.json())
-        .then(data => {
-          console.log('Shoot response:', data);
-          // Re-enable button after sequence completes
-          setTimeout(() => {
-            btn.disabled = false;
-            btn.style.opacity = '1';
-            btn.textContent = '🔫 SHOOT';
-          }, 100);
-        })
-        .catch(err => {
-          console.error('Error:', err);
-          alert('✗ Shoot failed: ' + err);
-          btn.disabled = false;
-          btn.style.opacity = '1';
-          btn.textContent = '🔫 SHOOT';
-        });
-    });
+    const btnShoot = document.getElementById('btnShoot');
+    let firing = false;
+    function startFiring() {
+      if (firing) return;
+      firing = true;
+      btnShoot.classList.add('pressed');
+      btnShoot.textContent = '🔥 FIRING...';
+      fetch('/shoot?state=start').catch(err => console.error('Error:', err));
+    }
+    function stopFiring() {
+      if (!firing) return;
+      firing = false;
+      btnShoot.classList.remove('pressed');
+      btnShoot.textContent = '🔫 SHOOT';
+      fetch('/shoot?state=stop').catch(err => console.error('Error:', err));
+    }
+    btnShoot.addEventListener('mousedown', startFiring);
+    btnShoot.addEventListener('mouseup', stopFiring);
+    btnShoot.addEventListener('mouseleave', stopFiring);
+    btnShoot.addEventListener('touchstart', (e) => { e.preventDefault(); startFiring(); });
+    btnShoot.addEventListener('touchend', (e) => { e.preventDefault(); stopFiring(); });
 
     // Reset button
     document.getElementById('btnReset').addEventListener('click', () => {
-      if (confirm('Reset servos to center (90°) and clear saved positions?')) {
-        fetch('/reset')
-          .then(response => response.text())
-          .then(data => {
-            alert('✓ Reset complete! Servos moved to 90°');
-            updatePosition();
-          })
-          .catch(err => {
-            alert('✗ Reset failed: ' + err);
-            console.error('Error:', err);
-          });
+      if (confirm('Reset servos to center (90°)?')) {
+        fetch('/reset').then(() => updatePosition()).catch(err => console.error('Error:', err));
       }
     });
 
-    // Update position every 50ms (20 times per second for smooth display)
-    setInterval(updatePosition, 50);
-    updatePosition(); // Initial update
+    setInterval(updatePosition, 100);
+    updatePosition();
   </script>
 </body>
 </html>
 )rawliteral";
 
 // ===========================
+// Camera stream handler
+// ===========================
+static esp_err_t stream_handler(httpd_req_t *req) {
+  camera_fb_t *fb = NULL;
+  esp_err_t res = ESP_OK;
+  size_t _jpg_buf_len = 0;
+  uint8_t *_jpg_buf = NULL;
+  char part_buf[64];
+
+  res = httpd_resp_set_type(req, _STREAM_CONTENT_TYPE);
+  if (res != ESP_OK) return res;
+
+  httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+
+  while (true) {
+    fb = esp_camera_fb_get();
+    if (!fb) {
+      Serial.println("Camera capture failed");
+      res = ESP_FAIL;
+    } else {
+      if (fb->format != PIXFORMAT_JPEG) {
+        bool jpeg_converted = frame2jpg(fb, 80, &_jpg_buf, &_jpg_buf_len);
+        esp_camera_fb_return(fb);
+        fb = NULL;
+        if (!jpeg_converted) {
+          Serial.println("JPEG compression failed");
+          res = ESP_FAIL;
+        }
+      } else {
+        _jpg_buf_len = fb->len;
+        _jpg_buf = fb->buf;
+      }
+    }
+    if (res == ESP_OK) {
+      res = httpd_resp_send_chunk(req, _STREAM_BOUNDARY, strlen(_STREAM_BOUNDARY));
+    }
+    if (res == ESP_OK) {
+      size_t hlen = snprintf(part_buf, 64, _STREAM_PART, _jpg_buf_len);
+      res = httpd_resp_send_chunk(req, part_buf, hlen);
+    }
+    if (res == ESP_OK) {
+      res = httpd_resp_send_chunk(req, (const char *)_jpg_buf, _jpg_buf_len);
+    }
+    if (fb) {
+      esp_camera_fb_return(fb);
+      fb = NULL;
+      _jpg_buf = NULL;
+    } else if (_jpg_buf) {
+      free(_jpg_buf);
+      _jpg_buf = NULL;
+    }
+    if (res != ESP_OK) {
+      break;
+    }
+  }
+  return res;
+}
+
+void startStreamServer() {
+  httpd_config_t config = HTTPD_DEFAULT_CONFIG();
+  config.server_port = 81;
+
+  httpd_uri_t stream_uri = {
+    .uri = "/stream",
+    .method = HTTP_GET,
+    .handler = stream_handler,
+    .user_ctx = NULL
+  };
+
+  if (httpd_start(&stream_httpd, &config) == ESP_OK) {
+    httpd_register_uri_handler(stream_httpd, &stream_uri);
+    Serial.println("Stream server started on port 81");
+  }
+}
+
+// ===========================
 // Position persistence functions
 // ===========================
 void loadPositions() {
-  preferences.begin("turret", true);  // Read-only mode
-
+  preferences.begin("turret", true);
   horizontalAngle = preferences.getInt("hAngle", HORIZONTAL_CENTER);
   verticalAngle = preferences.getInt("vAngle", VERTICAL_CENTER);
-
   preferences.end();
-
-  Serial.println("Loaded saved positions:");
-  Serial.print("  Horizontal: ");
-  Serial.print(horizontalAngle);
-  Serial.println("°");
-  Serial.print("  Vertical: ");
-  Serial.print(verticalAngle);
-  Serial.println("°");
+  Serial.printf("Loaded positions - H: %d° V: %d°\n", horizontalAngle, verticalAngle);
 }
 
 void savePositions() {
-  preferences.begin("turret", false);  // Read-write mode
-
+  preferences.begin("turret", false);
   preferences.putInt("hAngle", horizontalAngle);
   preferences.putInt("vAngle", verticalAngle);
-
   preferences.end();
-
   positionsSaved = true;
-
-  Serial.println("💾 Positions saved to flash:");
-  Serial.print("  Horizontal: ");
-  Serial.print(horizontalAngle);
-  Serial.println("°");
-  Serial.print("  Vertical: ");
-  Serial.print(verticalAngle);
-  Serial.println("°");
+  Serial.printf("Saved positions - H: %d° V: %d°\n", horizontalAngle, verticalAngle);
 }
 
 // ===========================
-// Handler functions
+// Web handler functions
 // ===========================
 void handleRoot() {
   server.send(200, "text/html", htmlPage);
@@ -428,17 +503,10 @@ void handleMove() {
   if (server.hasArg("dir") && server.hasArg("state")) {
     String direction = server.arg("dir");
     int state = server.arg("state").toInt();
-
-    if (direction == "up") {
-      movingUp = (state == 1);
-    } else if (direction == "down") {
-      movingDown = (state == 1);
-    } else if (direction == "left") {
-      movingLeft = (state == 1);
-    } else if (direction == "right") {
-      movingRight = (state == 1);
-    }
-
+    if (direction == "up") movingUp = (state == 1);
+    else if (direction == "down") movingDown = (state == 1);
+    else if (direction == "left") movingLeft = (state == 1);
+    else if (direction == "right") movingRight = (state == 1);
     server.send(200, "text/plain", "OK");
   } else {
     server.send(400, "text/plain", "Missing parameters");
@@ -451,168 +519,123 @@ void handlePosition() {
 }
 
 void handleReset() {
-  Serial.println("\n🔄 Reset requested - clearing saved positions");
-
-  // Clear saved positions from flash
   preferences.begin("turret", false);
   preferences.clear();
   preferences.end();
-
-  // Reset to center positions
   horizontalAngle = HORIZONTAL_CENTER;
   verticalAngle = VERTICAL_CENTER;
-
-  // Move servos to center
   horizontalServo.write(horizontalAngle);
   verticalServo.write(verticalAngle);
-
-  // Mark as saved (no pending changes)
   positionsSaved = true;
   positionChanged = false;
-
-  Serial.println("✓ Reset complete:");
-  Serial.print("  Horizontal: ");
-  Serial.print(horizontalAngle);
-  Serial.println("°");
-  Serial.print("  Vertical: ");
-  Serial.print(verticalAngle);
-  Serial.println("°");
-  Serial.println("  Saved positions cleared from flash");
-
+  Serial.println("Reset to center");
   server.send(200, "text/plain", "Reset complete");
 }
 
-void handleRelay() {
-  // Handle relay control via query parameters
-  // Examples: /relay?spinner=on, /relay?trigger=off, /relay?spinner=on&trigger=on
-  // Note: Relays are active-LOW (LOW = ON, HIGH = OFF)
-
-  if (server.hasArg("spinner")) {
-    String spinnerState = server.arg("spinner");
-    if (spinnerState == "on") {
-      digitalWrite(RELAY_PIN_SPINNER, LOW);  // LOW = ON for active-LOW relay
-      spinnerActive = true;
-      Serial.println("🔫 Spinner motor: ON");
-    } else if (spinnerState == "off") {
-      digitalWrite(RELAY_PIN_SPINNER, HIGH);  // HIGH = OFF for active-LOW relay
-      spinnerActive = false;
-      Serial.println("🔫 Spinner motor: OFF");
-    }
-  }
-
-  if (server.hasArg("trigger")) {
-    String triggerState = server.arg("trigger");
-    if (triggerState == "on") {
-      digitalWrite(RELAY_PIN_TRIGGER, LOW);  // LOW = ON for active-LOW relay
-      triggerActive = true;
-      Serial.println("🔫 Trigger motor: ON");
-    } else if (triggerState == "off") {
-      digitalWrite(RELAY_PIN_TRIGGER, HIGH);  // HIGH = OFF for active-LOW relay
-      triggerActive = false;
-      Serial.println("🔫 Trigger motor: OFF");
-    }
-  }
-
-  // Return current relay states as JSON
-  String json = "{\"spinner\":";
-  json += spinnerActive ? "true" : "false";
-  json += ",\"trigger\":";
-  json += triggerActive ? "true" : "false";
-  json += "}";
-
-  server.send(200, "application/json", json);
-}
-
 void handleShoot() {
-  Serial.println("\n🎯 FIRING SEQUENCE INITIATED");
-
-  // Step 1: Activate spinner motor (spin up flywheels)
-  digitalWrite(RELAY_PIN_SPINNER, LOW);  // LOW = ON
-  spinnerActive = true;
-  Serial.println("  ⚙️  Spinner: ON (spinning up flywheels...)");
-
-  // Step 2: Wait for flywheels to reach full speed
-  delay(250);  // 250ms spin-up time
-
-  // Step 3: Activate trigger (feed dart into flywheels)
-  digitalWrite(RELAY_PIN_TRIGGER, LOW);  // LOW = ON
-  triggerActive = true;
-  Serial.println("  🔫 Trigger: ON (feeding dart...)");
-
-  // Step 4: Wait for dart to fire
-  delay(100);  // 100ms firing time
-
-  // Step 5: Deactivate trigger
-  digitalWrite(RELAY_PIN_TRIGGER, HIGH);  // HIGH = OFF
-  triggerActive = false;
-  Serial.println("  🔫 Trigger: OFF");
-
-  // Step 6: Deactivate spinner
-  digitalWrite(RELAY_PIN_SPINNER, HIGH);  // HIGH = OFF
-  spinnerActive = false;
-  Serial.println("  ⚙️  Spinner: OFF");
-
-  Serial.println("✅ FIRING SEQUENCE COMPLETE\n");
-
-  // Return success response
-  String json = "{\"status\":\"complete\",\"sequence\":\"spinner→trigger→off\"}";
-  server.send(200, "application/json", json);
+  if (server.hasArg("state")) {
+    String state = server.arg("state");
+    if (state == "start") {
+      digitalWrite(RELAY_PIN_SPINNER, LOW);
+      spinnerActive = true;
+      delay(250);
+      digitalWrite(RELAY_PIN_TRIGGER, LOW);
+      triggerActive = true;
+      Serial.println("FIRING...");
+      server.send(200, "application/json", "{\"status\":\"firing\"}");
+    } else if (state == "stop") {
+      digitalWrite(RELAY_PIN_TRIGGER, HIGH);
+      digitalWrite(RELAY_PIN_SPINNER, HIGH);
+      triggerActive = false;
+      spinnerActive = false;
+      Serial.println("STOPPED");
+      server.send(200, "application/json", "{\"status\":\"stopped\"}");
+    }
+  } else {
+    server.send(400, "text/plain", "Missing state parameter");
+  }
 }
 
 void handleNotFound() {
   server.send(404, "text/plain", "404: Not Found");
 }
 
+// ===========================
+// Setup
+// ===========================
 void setup() {
-  // Initialize serial communication for debugging
   Serial.begin(115200);
-  Serial.println("\n\nToy Gun Turret - Step 4b: Automatic Firing Sequence");
+  Serial.println("\n\nToy Gun Turret - Step 6: Camera Streaming");
 
-  // Load saved positions from flash (or use defaults)
+  // Initialize camera
+  camera_config_t config;
+  config.ledc_channel = LEDC_CHANNEL_0;
+  config.ledc_timer = LEDC_TIMER_0;
+  config.pin_d0 = Y2_GPIO_NUM;
+  config.pin_d1 = Y3_GPIO_NUM;
+  config.pin_d2 = Y4_GPIO_NUM;
+  config.pin_d3 = Y5_GPIO_NUM;
+  config.pin_d4 = Y6_GPIO_NUM;
+  config.pin_d5 = Y7_GPIO_NUM;
+  config.pin_d6 = Y8_GPIO_NUM;
+  config.pin_d7 = Y9_GPIO_NUM;
+  config.pin_xclk = XCLK_GPIO_NUM;
+  config.pin_pclk = PCLK_GPIO_NUM;
+  config.pin_vsync = VSYNC_GPIO_NUM;
+  config.pin_href = HREF_GPIO_NUM;
+  config.pin_sccb_sda = SIOD_GPIO_NUM;
+  config.pin_sccb_scl = SIOC_GPIO_NUM;
+  config.pin_pwdn = PWDN_GPIO_NUM;
+  config.pin_reset = RESET_GPIO_NUM;
+  config.xclk_freq_hz = 20000000;
+  config.pixel_format = PIXFORMAT_JPEG;
+  config.frame_size = FRAMESIZE_VGA;  // 640x480
+  config.jpeg_quality = 12;
+  config.fb_count = 2;
+  config.grab_mode = CAMERA_GRAB_LATEST;
+
+  // Check for PSRAM
+  if (psramFound()) {
+    config.fb_location = CAMERA_FB_IN_PSRAM;
+    Serial.println("PSRAM found, using for frame buffer");
+  } else {
+    config.fb_location = CAMERA_FB_IN_DRAM;
+    config.frame_size = FRAMESIZE_QVGA;  // Smaller if no PSRAM
+    Serial.println("No PSRAM, using DRAM");
+  }
+
+  // Camera init
+  esp_err_t err = esp_camera_init(&config);
+  if (err != ESP_OK) {
+    Serial.printf("Camera init failed with error 0x%x\n", err);
+  } else {
+    Serial.println("Camera initialized successfully");
+  }
+
+  // Load saved positions
   loadPositions();
 
-  // Attach servos to GPIO pins
+  // Attach servos
   horizontalServo.attach(SERVO_PIN_HORIZONTAL);
   verticalServo.attach(SERVO_PIN_VERTICAL);
-
-  // Set servos to loaded/saved position
   horizontalServo.write(horizontalAngle);
   verticalServo.write(verticalAngle);
 
-  // Initialize relay pins (active LOW - HIGH = OFF, LOW = ON)
+  // Initialize relay pins
   pinMode(RELAY_PIN_SPINNER, OUTPUT);
   pinMode(RELAY_PIN_TRIGGER, OUTPUT);
-  digitalWrite(RELAY_PIN_SPINNER, HIGH);  // OFF initially (HIGH for active-LOW relays)
-  digitalWrite(RELAY_PIN_TRIGGER, HIGH);  // OFF initially (HIGH for active-LOW relays)
+  digitalWrite(RELAY_PIN_SPINNER, HIGH);
+  digitalWrite(RELAY_PIN_TRIGGER, HIGH);
 
-  Serial.println("\nRelay pins initialized (GPIO 14: Trigger, GPIO 15: Spinner)");
+  Serial.println("Servos and relays initialized");
 
-  Serial.println("\nServo ranges:");
-  Serial.print("  Horizontal: ");
-  Serial.print(HORIZONTAL_MIN);
-  Serial.print("° to ");
-  Serial.print(HORIZONTAL_MAX);
-  Serial.println("°");
-
-  Serial.print("  Vertical: ");
-  Serial.print(VERTICAL_MIN);
-  Serial.print("° to ");
-  Serial.print(VERTICAL_MAX);
-  Serial.println("°");
-
-  // Configure static IP (comment out these lines to use DHCP)
+  // Configure static IP
   if (!WiFi.config(local_IP, gateway, subnet, primaryDNS, secondaryDNS)) {
     Serial.println("Static IP configuration failed");
   }
 
-  // Set hostname
   WiFi.setHostname(hostname);
-
-  // Connect to WiFi
-  Serial.println("\nConnecting to WiFi...");
-  Serial.print("SSID: ");
-  Serial.println(ssid);
-
+  Serial.printf("Connecting to WiFi: %s\n", ssid);
   WiFi.begin(ssid, password);
 
   int attempts = 0;
@@ -623,28 +646,18 @@ void setup() {
   }
 
   if (WiFi.status() == WL_CONNECTED) {
-    Serial.println("\n✓ WiFi connected!");
-    Serial.print("IP address: ");
-    Serial.println(WiFi.localIP());
+    Serial.println("\nWiFi connected!");
+    Serial.printf("IP address: %s\n", WiFi.localIP().toString().c_str());
 
-    // Start mDNS responder
     if (MDNS.begin(hostname)) {
-      Serial.print("mDNS responder started: http://");
-      Serial.print(hostname);
-      Serial.println(".local");
-    } else {
-      Serial.println("Error setting up mDNS responder!");
+      Serial.printf("mDNS: http://%s.local\n", hostname);
     }
 
-    Serial.println("\nAccess the turret at:");
-    Serial.print("  http://");
-    Serial.println(WiFi.localIP());
-    Serial.print("  http://");
-    Serial.print(hostname);
-    Serial.println(".local");
+    Serial.println("\nAccess points:");
+    Serial.printf("  Control UI: http://%s\n", WiFi.localIP().toString().c_str());
+    Serial.printf("  Stream: http://%s:81/stream\n", WiFi.localIP().toString().c_str());
   } else {
-    Serial.println("\n✗ WiFi connection failed!");
-    Serial.println("Please check your SSID and password");
+    Serial.println("\nWiFi connection failed!");
   }
 
   // Setup web server routes
@@ -652,28 +665,30 @@ void setup() {
   server.on("/move", handleMove);
   server.on("/position", handlePosition);
   server.on("/reset", handleReset);
-  server.on("/relay", handleRelay);
   server.on("/shoot", handleShoot);
   server.onNotFound(handleNotFound);
 
-  // Start server
   server.begin();
-  Serial.println("Web server started");
-  Serial.println("\nReady for control!");
+  Serial.println("Control server started on port 80");
+
+  // Start stream server
+  startStreamServer();
+
+  Serial.println("\nReady!");
 }
 
+// ===========================
+// Loop
+// ===========================
 void loop() {
-  // Handle incoming web requests
   server.handleClient();
 
-  // Handle servo movement based on button presses
   unsigned long currentTime = millis();
 
   if (currentTime - lastMoveTime >= MOVE_DELAY) {
     lastMoveTime = currentTime;
     bool moved = false;
 
-    // Vertical movement (reversed: up button decreases angle, down button increases)
     if (movingUp && verticalAngle > VERTICAL_MIN) {
       verticalAngle -= MOVE_STEP;
       verticalServo.write(verticalAngle);
@@ -684,8 +699,6 @@ void loop() {
       verticalServo.write(verticalAngle);
       moved = true;
     }
-
-    // Horizontal movement
     if (movingLeft && horizontalAngle > HORIZONTAL_MIN) {
       horizontalAngle -= MOVE_STEP;
       horizontalServo.write(horizontalAngle);
@@ -697,24 +710,15 @@ void loop() {
       moved = true;
     }
 
-    // Track activity for auto-save
     if (moved) {
       lastActivityTime = currentTime;
       positionChanged = true;
       positionsSaved = false;
-
-      // Debug output when moving
-      Serial.print("Position - H: ");
-      Serial.print(horizontalAngle);
-      Serial.print("° V: ");
-      Serial.print(verticalAngle);
-      Serial.println("°");
     }
   }
 
-  // Auto-save positions after idle period
-  if (positionChanged && !positionsSaved &&
-      (currentTime - lastActivityTime >= SAVE_DELAY)) {
+  // Auto-save positions
+  if (positionChanged && !positionsSaved && (currentTime - lastActivityTime >= SAVE_DELAY)) {
     savePositions();
     positionChanged = false;
   }
