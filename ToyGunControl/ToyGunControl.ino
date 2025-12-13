@@ -802,17 +802,29 @@ void handleStats() {
 
 void handleConfig() {
   sensor_t *s = esp_camera_sensor_get();
+  bool changed = false;
 
   if (server.hasArg("framesize")) {
     int framesize = server.arg("framesize").toInt();
     s->set_framesize(s, (framesize_t)framesize);
     Serial.printf("Set framesize to %d\n", framesize);
+    changed = true;
   }
 
   if (server.hasArg("quality")) {
     int quality = server.arg("quality").toInt();
     s->set_quality(s, quality);
     Serial.printf("Set quality to %d\n", quality);
+    changed = true;
+  }
+
+  // Save to persistent storage
+  if (changed) {
+    preferences.begin("camera", false);
+    preferences.putInt("framesize", s->status.framesize);
+    preferences.putInt("quality", s->status.quality);
+    preferences.end();
+    Serial.println("Camera settings saved to flash");
   }
 
   server.send(200, "application/json", "{\"success\":true}");
@@ -872,6 +884,17 @@ void setup() {
     Serial.printf("Camera init failed with error 0x%x\n", err);
   } else {
     Serial.println("Camera initialized successfully");
+
+    // Load saved camera settings
+    preferences.begin("camera", true);
+    int savedFramesize = preferences.getInt("framesize", 8);  // Default VGA
+    int savedQuality = preferences.getInt("quality", 12);     // Default 12
+    preferences.end();
+
+    sensor_t *s = esp_camera_sensor_get();
+    s->set_framesize(s, (framesize_t)savedFramesize);
+    s->set_quality(s, savedQuality);
+    Serial.printf("Loaded camera settings - framesize: %d, quality: %d\n", savedFramesize, savedQuality);
   }
 
   // Load saved positions
