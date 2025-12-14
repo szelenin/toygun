@@ -77,6 +77,9 @@ IPAddress secondaryDNS(8, 8, 8, 8);
 #define RELAY_PIN_SPINNER    15
 #define RELAY_PIN_TRIGGER    14
 #define LED_FLASH_PIN         4  // Flash LED on ESP32-CAM
+#define LED_PWM_CHANNEL       2  // PWM channel for LED (0,1 used by camera)
+#define LED_PWM_FREQ       5000  // 5kHz PWM frequency
+#define LED_PWM_RESOLUTION    8  // 8-bit resolution (0-255)
 
 // Servo objects
 Servo horizontalServo;
@@ -86,8 +89,8 @@ Servo verticalServo;
 bool spinnerActive = false;
 bool triggerActive = false;
 
-// Flash LED state
-bool ledActive = false;
+// Flash LED state (0-255 brightness)
+int ledBrightness = 0;
 
 // Webserver for control UI (port 80)
 WebServer server(80);
@@ -323,9 +326,17 @@ const char* htmlPage = R"rawliteral(
     </div>
 
     <button id="btnShoot">🔫 SHOOT</button>
-    <br>
-    <button id="btnLight" style="margin-top: 10px; padding: 10px 20px; background: linear-gradient(135deg, #ffecd2 0%, #fcb69f 100%); color: #333; border: none; border-radius: 8px; font-size: 0.95em; cursor: pointer; box-shadow: 0 4px 10px rgba(0,0,0,0.2);">💡 Light OFF</button>
-    <button id="btnReset" style="margin-left: 10px; margin-top: 10px; padding: 10px 16px; background: linear-gradient(135deg, #a29bfe 0%, #6c5ce7 100%); color: white; border: none; border-radius: 8px; font-size: 0.85em; cursor: pointer;">🔄 Reset</button>
+
+    <div style="margin-top: 15px; padding: 10px; background: #f8f9fa; border-radius: 10px;">
+      <div style="display: flex; align-items: center; gap: 10px;">
+        <span>💡</span>
+        <input type="range" id="ledSlider" min="0" max="255" value="0" style="flex: 1;">
+        <span id="ledValue" style="min-width: 35px;">0%</span>
+      </div>
+      <div style="font-size: 0.75em; color: #666; margin-top: 5px;">Tip: Keep below 50% to avoid WiFi interference</div>
+    </div>
+
+    <button id="btnReset" style="margin-top: 10px; padding: 10px 16px; background: linear-gradient(135deg, #a29bfe 0%, #6c5ce7 100%); color: white; border: none; border-radius: 8px; font-size: 0.85em; cursor: pointer;">🔄 Reset</button>
     <br>
     <a href="/admin" style="display: inline-block; margin-top: 15px; color: #667eea; font-size: 0.85em;">⚙️ Admin Settings</a>
   </div>
@@ -390,19 +401,17 @@ const char* htmlPage = R"rawliteral(
     btnShoot.addEventListener('touchstart', (e) => { e.preventDefault(); startFiring(); });
     btnShoot.addEventListener('touchend', (e) => { e.preventDefault(); stopFiring(); });
 
-    // Light toggle button
-    const btnLight = document.getElementById('btnLight');
-    let lightOn = false;
-    btnLight.addEventListener('click', () => {
-      lightOn = !lightOn;
-      fetch('/led?state=' + (lightOn ? 'on' : 'off'))
-        .then(() => {
-          btnLight.textContent = lightOn ? '💡 Light ON' : '💡 Light OFF';
-          btnLight.style.background = lightOn
-            ? 'linear-gradient(135deg, #f9d423 0%, #ff4e00 100%)'
-            : 'linear-gradient(135deg, #ffecd2 0%, #fcb69f 100%)';
-        })
-        .catch(err => console.error('Error:', err));
+    // LED brightness slider
+    const ledSlider = document.getElementById('ledSlider');
+    const ledValue = document.getElementById('ledValue');
+    let ledTimeout;
+    ledSlider.addEventListener('input', (e) => {
+      const val = e.target.value;
+      ledValue.textContent = Math.round(val / 255 * 100) + '%';
+      clearTimeout(ledTimeout);
+      ledTimeout = setTimeout(() => {
+        fetch('/led?brightness=' + val).catch(err => console.error('Error:', err));
+      }, 100);
     });
 
     // Reset button
@@ -857,21 +866,29 @@ void handleShoot() {
 }
 
 void handleLED() {
-  if (server.hasArg("state")) {
+  if (server.hasArg("brightness")) {
+    // New brightness control (0-255)
+    ledBrightness = server.arg("brightness").toInt();
+    ledBrightness = constrain(ledBrightness, 0, 255);
+    ledcWrite(LED_PWM_CHANNEL, ledBrightness);
+    Serial.printf("LED brightness: %d\n", ledBrightness);
+    server.send(200, "application/json", "{\"brightness\":" + String(ledBrightness) + "}");
+  } else if (server.hasArg("state")) {
+    // Legacy on/off support (uses 25% brightness to avoid WiFi issues)
     String state = server.arg("state");
     if (state == "on") {
-      digitalWrite(LED_FLASH_PIN, HIGH);
-      ledActive = true;
-      Serial.println("LED ON");
-      server.send(200, "application/json", "{\"led\":true}");
+      ledBrightness = 64;  // 25% brightness - enough light, less power draw
+      ledcWrite(LED_PWM_CHANNEL, ledBrightness);
+      Serial.println("LED ON (25%)");
+      server.send(200, "application/json", "{\"led\":true,\"brightness\":64}");
     } else if (state == "off") {
-      digitalWrite(LED_FLASH_PIN, LOW);
-      ledActive = false;
+      ledBrightness = 0;
+      ledcWrite(LED_PWM_CHANNEL, 0);
       Serial.println("LED OFF");
-      server.send(200, "application/json", "{\"led\":false}");
+      server.send(200, "application/json", "{\"led\":false,\"brightness\":0}");
     }
   } else {
-    server.send(400, "text/plain", "Missing state parameter");
+    server.send(400, "text/plain", "Missing state or brightness parameter");
   }
 }
 
@@ -1030,9 +1047,10 @@ void setup() {
   digitalWrite(RELAY_PIN_SPINNER, HIGH);
   digitalWrite(RELAY_PIN_TRIGGER, HIGH);
 
-  // Initialize flash LED pin
-  pinMode(LED_FLASH_PIN, OUTPUT);
-  digitalWrite(LED_FLASH_PIN, LOW);
+  // Initialize flash LED with PWM (reduces power draw vs full ON)
+  ledcSetup(LED_PWM_CHANNEL, LED_PWM_FREQ, LED_PWM_RESOLUTION);
+  ledcAttachPin(LED_FLASH_PIN, LED_PWM_CHANNEL);
+  ledcWrite(LED_PWM_CHANNEL, 0);
 
   Serial.println("Servos, relays, and LED initialized");
 
