@@ -77,7 +77,6 @@ IPAddress secondaryDNS(8, 8, 8, 8);
 #define RELAY_PIN_SPINNER    15
 #define RELAY_PIN_TRIGGER    14
 #define LED_FLASH_PIN         4  // Flash LED on ESP32-CAM
-#define LED_PWM_CHANNEL       2  // PWM channel for LED (0,1 used by camera)
 #define LED_PWM_FREQ       5000  // 5kHz PWM frequency
 #define LED_PWM_RESOLUTION    8  // 8-bit resolution (0-255)
 
@@ -870,7 +869,7 @@ void handleLED() {
     // New brightness control (0-255)
     ledBrightness = server.arg("brightness").toInt();
     ledBrightness = constrain(ledBrightness, 0, 255);
-    ledcWrite(LED_PWM_CHANNEL, ledBrightness);
+    ledcWrite(LED_FLASH_PIN, ledBrightness);
     Serial.printf("LED brightness: %d\n", ledBrightness);
     server.send(200, "application/json", "{\"brightness\":" + String(ledBrightness) + "}");
   } else if (server.hasArg("state")) {
@@ -878,12 +877,12 @@ void handleLED() {
     String state = server.arg("state");
     if (state == "on") {
       ledBrightness = 64;  // 25% brightness - enough light, less power draw
-      ledcWrite(LED_PWM_CHANNEL, ledBrightness);
+      ledcWrite(LED_FLASH_PIN, ledBrightness);
       Serial.println("LED ON (25%)");
       server.send(200, "application/json", "{\"led\":true,\"brightness\":64}");
     } else if (state == "off") {
       ledBrightness = 0;
-      ledcWrite(LED_PWM_CHANNEL, 0);
+      ledcWrite(LED_FLASH_PIN, 0);
       Serial.println("LED OFF");
       server.send(200, "application/json", "{\"led\":false,\"brightness\":0}");
     }
@@ -1048,9 +1047,8 @@ void setup() {
   digitalWrite(RELAY_PIN_TRIGGER, HIGH);
 
   // Initialize flash LED with PWM (reduces power draw vs full ON)
-  ledcSetup(LED_PWM_CHANNEL, LED_PWM_FREQ, LED_PWM_RESOLUTION);
-  ledcAttachPin(LED_FLASH_PIN, LED_PWM_CHANNEL);
-  ledcWrite(LED_PWM_CHANNEL, 0);
+  ledcAttach(LED_FLASH_PIN, LED_PWM_FREQ, LED_PWM_RESOLUTION);
+  ledcWrite(LED_FLASH_PIN, 0);
 
   Serial.println("Servos, relays, and LED initialized");
 
