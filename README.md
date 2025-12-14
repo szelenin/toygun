@@ -47,7 +47,7 @@ This will mount another servo to move the gun vertically:
 
 | Component | Description | Link |
 |-----------|-------------|------|
-| **Toy Gun** | XSHOT Insanity Motorized Rage Fire | [Walmart](https://www.blogger.com/blog/post/edit/24004232/1311660424994822752#) |
+| **Toy Gun** | XSHOT Insanity Motorized Rage Fire | [Walmart](https://www.walmart.com/ip/ZURU-X-Shot-Insanity-Motorized-Rage-Fire-72-Darts-for-Ages-8-up/1938663272) |
 | **IR Camera** | AMG8833 IR 8×8 Thermal Imager Array Temperature Sensor Module | [Link](https://www.blogger.com/blog/post/edit/24004232/1311660424994822752#) |
 | **Servo Motors** | Dsservo Waterproof Servo DS3235 35KG (×2) | [Link](https://www.blogger.com/blog/post/edit/24004232/1311660424994822752#) |
 | **Relay Module** | DC 5V 12V 24V Relay Module with Optocoupler | [Link](https://www.blogger.com/blog/post/edit/24004232/1311660424994822752#) |
