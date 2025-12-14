@@ -504,6 +504,14 @@ const char* adminPage = R"rawliteral(
       <span>Frame Size</span>
       <span class="stat-value" id="frameSize">--</span>
     </div>
+    <div class="stat">
+      <span>Free Heap Memory</span>
+      <span class="stat-value" id="heap">-- KB</span>
+    </div>
+    <div class="stat">
+      <span>Free PSRAM</span>
+      <span class="stat-value" id="psram">-- KB</span>
+    </div>
 
     <label>Resolution</label>
     <select id="resolution">
@@ -521,13 +529,15 @@ const char* adminPage = R"rawliteral(
     <label>JPEG Quality: <span id="qualityVal">12</span></label>
     <input type="range" id="quality" min="10" max="63" value="12">
     <div class="hint">10 = best quality (slow), 63 = most compressed (fast)</div>
-
-    <button id="btnApply">Apply Settings</button>
+    <div class="hint" style="color: #4ade80; margin-top: 10px;">Settings auto-apply and save to flash</div>
 
     <a href="/" class="back-link">← Back to Control</a>
   </div>
 
   <script>
+    let currentFramesize = 8;
+    let currentQuality = 12;
+
     // Update stats
     function updateStats() {
       fetch('/stats')
@@ -542,29 +552,48 @@ const char* adminPage = R"rawliteral(
           fpsEl.className = 'stat-value' + (data.fps > 15 ? '' : data.fps > 8 ? ' warning' : ' bad');
 
           document.getElementById('frameSize').textContent = data.frameWidth + 'x' + data.frameHeight;
-          document.getElementById('resolution').value = data.framesize;
-          document.getElementById('quality').value = data.quality;
-          document.getElementById('qualityVal').textContent = data.quality;
+
+          const heapEl = document.getElementById('heap');
+          const heapKB = (data.freeHeap / 1024).toFixed(0);
+          heapEl.textContent = heapKB + ' KB';
+          heapEl.className = 'stat-value' + (heapKB > 50 ? '' : heapKB > 20 ? ' warning' : ' bad');
+
+          const psramEl = document.getElementById('psram');
+          const psramKB = (data.freePsram / 1024).toFixed(0);
+          psramEl.textContent = psramKB + ' KB';
+          psramEl.className = 'stat-value' + (psramKB > 1000 ? '' : psramKB > 500 ? ' warning' : ' bad');
+
+          // Only update UI if not user-modified
+          if (!document.activeElement || document.activeElement.id !== 'resolution') {
+            currentFramesize = data.framesize;
+            document.getElementById('resolution').value = data.framesize;
+          }
+          if (!document.activeElement || document.activeElement.id !== 'quality') {
+            currentQuality = data.quality;
+            document.getElementById('quality').value = data.quality;
+            document.getElementById('qualityVal').textContent = data.quality;
+          }
         })
         .catch(err => console.error('Error:', err));
     }
 
-    // Quality slider
-    document.getElementById('quality').addEventListener('input', (e) => {
-      document.getElementById('qualityVal').textContent = e.target.value;
-    });
-
-    // Apply settings
-    document.getElementById('btnApply').addEventListener('click', () => {
+    // Auto-apply function
+    function applySettings() {
       const resolution = document.getElementById('resolution').value;
       const quality = document.getElementById('quality').value;
       fetch('/config?framesize=' + resolution + '&quality=' + quality)
-        .then(r => r.json())
-        .then(data => {
-          alert('Settings applied! Refresh stream to see changes.');
-          updateStats();
-        })
-        .catch(err => alert('Error: ' + err));
+        .catch(err => console.error('Error:', err));
+    }
+
+    // Auto-apply on resolution change
+    document.getElementById('resolution').addEventListener('change', applySettings);
+
+    // Auto-apply on quality change (with debounce)
+    let qualityTimeout;
+    document.getElementById('quality').addEventListener('input', (e) => {
+      document.getElementById('qualityVal').textContent = e.target.value;
+      clearTimeout(qualityTimeout);
+      qualityTimeout = setTimeout(applySettings, 300);
     });
 
     setInterval(updateStats, 1000);
@@ -794,7 +823,9 @@ void handleStats() {
   json += "\"framesize\":" + String(s->status.framesize) + ",";
   json += "\"quality\":" + String(s->status.quality) + ",";
   json += "\"frameWidth\":" + String(frameWidth) + ",";
-  json += "\"frameHeight\":" + String(frameHeight);
+  json += "\"frameHeight\":" + String(frameHeight) + ",";
+  json += "\"freeHeap\":" + String(ESP.getFreeHeap()) + ",";
+  json += "\"freePsram\":" + String(ESP.getFreePsram());
   json += "}";
 
   server.send(200, "application/json", json);
