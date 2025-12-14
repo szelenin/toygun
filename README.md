@@ -298,7 +298,7 @@ If you experience boot problems with GPIO 12, use this alternative:
 
 ## Resources
 
-- [How to connect the gun to the relay switch](https://www.blogger.com/blog/post/edit/24004232/1311660424994822752#) (YouTube)
+- [How to connect the gun to the relay switch](https://www.youtube.com/watch?v=oHw3v-HYmm8) (YouTube)
 
 ## Power Specifications
 
