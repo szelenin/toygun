@@ -513,6 +513,10 @@ const char* adminPage = R"rawliteral(
       <span class="stat-value" id="psram">-- KB</span>
     </div>
     <div class="stat">
+      <span>PSRAM Status</span>
+      <span class="stat-value" id="psramStatus">--</span>
+    </div>
+    <div class="stat">
       <span>Chip Temperature</span>
       <span class="stat-value" id="temp">--°C</span>
     </div>
@@ -580,6 +584,10 @@ const char* adminPage = R"rawliteral(
           const psramKB = (data.freePsram / 1024).toFixed(0);
           psramEl.textContent = psramKB + ' KB';
           psramEl.className = 'stat-value' + (psramKB > 1000 ? '' : psramKB > 500 ? ' warning' : ' bad');
+
+          const psramStatusEl = document.getElementById('psramStatus');
+          psramStatusEl.textContent = data.psramFound ? 'Detected' : 'NOT FOUND';
+          psramStatusEl.className = 'stat-value' + (data.psramFound ? '' : ' bad');
 
           const tempEl = document.getElementById('temp');
           tempEl.textContent = data.tempC.toFixed(1) + '°C';
@@ -888,9 +896,8 @@ void handleStats() {
     default: frameWidth = 640; frameHeight = 480;
   }
 
-  // Read internal temperature (Fahrenheit) and convert to Celsius
-  float tempF = temperatureRead();
-  float tempC = (tempF - 32.0) * 5.0 / 9.0;
+  // Read internal temperature (already in Celsius on ESP32)
+  float tempC = temperatureRead();
 
   String json = "{";
   json += "\"rssi\":" + String(WiFi.RSSI()) + ",";
@@ -901,6 +908,7 @@ void handleStats() {
   json += "\"frameHeight\":" + String(frameHeight) + ",";
   json += "\"freeHeap\":" + String(ESP.getFreeHeap()) + ",";
   json += "\"freePsram\":" + String(ESP.getFreePsram()) + ",";
+  json += "\"psramFound\":" + String(psramFound() ? "true" : "false") + ",";
   json += "\"tempC\":" + String(tempC, 1) + ",";
   json += "\"captureMs\":" + String(avgCaptureTime) + ",";
   json += "\"sendMs\":" + String(avgSendTime) + ",";
