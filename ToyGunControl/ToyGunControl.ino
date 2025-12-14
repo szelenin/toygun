@@ -517,6 +517,20 @@ const char* adminPage = R"rawliteral(
       <span class="stat-value" id="temp">--°C</span>
     </div>
 
+    <h3 style="margin-top: 20px; margin-bottom: 10px; color: #a5b4fc;">Frame Timing</h3>
+    <div class="stat">
+      <span>Capture Time</span>
+      <span class="stat-value" id="captureMs">-- ms</span>
+    </div>
+    <div class="stat">
+      <span>Send Time</span>
+      <span class="stat-value" id="sendMs">-- ms</span>
+    </div>
+    <div class="stat">
+      <span>Avg Frame Size</span>
+      <span class="stat-value" id="avgFrameKB">-- KB</span>
+    </div>
+
     <label>Resolution</label>
     <select id="resolution">
       <option value="4">QVGA (320x240) - Fastest</option>
@@ -571,6 +585,19 @@ const char* adminPage = R"rawliteral(
           tempEl.textContent = data.tempC.toFixed(1) + '°C';
           tempEl.className = 'stat-value' + (data.tempC < 60 ? '' : data.tempC < 75 ? ' warning' : ' bad');
 
+          // Frame timing stats
+          const captureEl = document.getElementById('captureMs');
+          captureEl.textContent = data.captureMs + ' ms';
+          captureEl.className = 'stat-value' + (data.captureMs < 100 ? '' : data.captureMs < 200 ? ' warning' : ' bad');
+
+          const sendEl = document.getElementById('sendMs');
+          sendEl.textContent = data.sendMs + ' ms';
+          sendEl.className = 'stat-value' + (data.sendMs < 100 ? '' : data.sendMs < 200 ? ' warning' : ' bad');
+
+          const frameSizeEl = document.getElementById('avgFrameKB');
+          frameSizeEl.textContent = data.avgFrameKB.toFixed(1) + ' KB';
+          frameSizeEl.className = 'stat-value' + (data.avgFrameKB < 50 ? '' : data.avgFrameKB < 100 ? ' warning' : ' bad');
+
           // Only update UI if not user-modified
           if (!document.activeElement || document.activeElement.id !== 'resolution') {
             currentFramesize = data.framesize;
@@ -611,10 +638,13 @@ const char* adminPage = R"rawliteral(
 </html>
 )rawliteral";
 
-// FPS tracking
+// FPS and timing tracking
 volatile float currentFPS = 0;
 volatile unsigned long lastFrameTime = 0;
 volatile unsigned long frameCount = 0;
+volatile unsigned long avgCaptureTime = 0;
+volatile unsigned long avgSendTime = 0;
+volatile unsigned long avgFrameSize = 0;
 
 // ===========================
 // Camera stream handler
@@ -631,8 +661,19 @@ static esp_err_t stream_handler(httpd_req_t *req) {
 
   httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
 
+  // Running averages
+  static unsigned long totalCaptureTime = 0;
+  static unsigned long totalSendTime = 0;
+  static unsigned long totalFrameSize = 0;
+  static unsigned long sampleCount = 0;
+
   while (true) {
+    // Measure capture time
+    unsigned long captureStart = millis();
     fb = esp_camera_fb_get();
+    unsigned long captureEnd = millis();
+    unsigned long captureTime = captureEnd - captureStart;
+
     if (!fb) {
       Serial.println("Camera capture failed");
       res = ESP_FAIL;
@@ -650,6 +691,9 @@ static esp_err_t stream_handler(httpd_req_t *req) {
         _jpg_buf = fb->buf;
       }
     }
+
+    // Measure send time
+    unsigned long sendStart = millis();
     if (res == ESP_OK) {
       res = httpd_resp_send_chunk(req, _STREAM_BOUNDARY, strlen(_STREAM_BOUNDARY));
     }
@@ -660,6 +704,9 @@ static esp_err_t stream_handler(httpd_req_t *req) {
     if (res == ESP_OK) {
       res = httpd_resp_send_chunk(req, (const char *)_jpg_buf, _jpg_buf_len);
     }
+    unsigned long sendEnd = millis();
+    unsigned long sendTime = sendEnd - sendStart;
+
     if (fb) {
       esp_camera_fb_return(fb);
       fb = NULL;
@@ -670,6 +717,22 @@ static esp_err_t stream_handler(httpd_req_t *req) {
     }
     if (res != ESP_OK) {
       break;
+    }
+
+    // Update timing stats (rolling average)
+    totalCaptureTime += captureTime;
+    totalSendTime += sendTime;
+    totalFrameSize += _jpg_buf_len;
+    sampleCount++;
+
+    if (sampleCount >= 10) {
+      avgCaptureTime = totalCaptureTime / sampleCount;
+      avgSendTime = totalSendTime / sampleCount;
+      avgFrameSize = totalFrameSize / sampleCount;
+      totalCaptureTime = 0;
+      totalSendTime = 0;
+      totalFrameSize = 0;
+      sampleCount = 0;
     }
 
     // FPS tracking
@@ -838,7 +901,10 @@ void handleStats() {
   json += "\"frameHeight\":" + String(frameHeight) + ",";
   json += "\"freeHeap\":" + String(ESP.getFreeHeap()) + ",";
   json += "\"freePsram\":" + String(ESP.getFreePsram()) + ",";
-  json += "\"tempC\":" + String(tempC, 1);
+  json += "\"tempC\":" + String(tempC, 1) + ",";
+  json += "\"captureMs\":" + String(avgCaptureTime) + ",";
+  json += "\"sendMs\":" + String(avgSendTime) + ",";
+  json += "\"avgFrameKB\":" + String(avgFrameSize / 1024.0, 1);
   json += "}";
 
   server.send(200, "application/json", json);
