@@ -954,6 +954,16 @@ static esp_err_t handle_stats(httpd_req_t *req) {
 }
 
 static esp_err_t handle_config(httpd_req_t *req) {
+  Serial.println("Config request received");
+
+  // Debug: print the full query string
+  char query[256];
+  if (httpd_req_get_url_query_str(req, query, sizeof(query)) == ESP_OK) {
+    Serial.printf("Query string: %s\n", query);
+  } else {
+    Serial.println("No query string found!");
+  }
+
   sensor_t *s = esp_camera_sensor_get();
   bool changed = false;
   char value[16];
@@ -963,6 +973,8 @@ static esp_err_t handle_config(httpd_req_t *req) {
     int result = s->set_framesize(s, (framesize_t)framesize);
     Serial.printf("Set framesize to %d, result: %d, actual: %d\n", framesize, result, s->status.framesize);
     changed = true;
+  } else {
+    Serial.println("framesize param not found");
   }
 
   if (getQueryParam(req, "quality", value, sizeof(value))) {
