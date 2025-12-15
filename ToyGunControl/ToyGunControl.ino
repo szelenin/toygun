@@ -761,6 +761,8 @@ void startStreamServer() {
   httpd_config_t config = HTTPD_DEFAULT_CONFIG();
   config.server_port = 81;
   config.ctrl_port = 32769;  // Different control port than default (32768)
+  config.recv_wait_timeout = 5;   // 5 second timeout
+  config.send_wait_timeout = 5;   // 5 second timeout - prevents hanging on slow clients
 
   httpd_uri_t stream_uri = {
     .uri = "/stream",
