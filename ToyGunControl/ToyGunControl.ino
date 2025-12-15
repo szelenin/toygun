@@ -760,6 +760,7 @@ static esp_err_t stream_handler(httpd_req_t *req) {
 void startStreamServer() {
   httpd_config_t config = HTTPD_DEFAULT_CONFIG();
   config.server_port = 81;
+  config.ctrl_port = 32769;  // Different control port than default (32768)
 
   httpd_uri_t stream_uri = {
     .uri = "/stream",
