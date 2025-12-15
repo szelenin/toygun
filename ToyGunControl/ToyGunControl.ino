@@ -32,7 +32,6 @@
 #include "esp_http_server.h"
 #include <ESP32Servo.h>
 #include <WiFi.h>
-#include <WebServer.h>
 #include <ESPmDNS.h>
 #include <Preferences.h>
 
@@ -91,11 +90,9 @@ bool triggerActive = false;
 // Flash LED state (0-255 brightness)
 int ledBrightness = 0;
 
-// Webserver for control UI (port 80)
-WebServer server(80);
-
-// Stream server handle (port 81)
-httpd_handle_t stream_httpd = NULL;
+// HTTP server handles (both use esp_http_server for non-blocking operation)
+httpd_handle_t control_httpd = NULL;  // Port 80 - control UI
+httpd_handle_t stream_httpd = NULL;   // Port 81 - camera stream
 
 // Preferences for position persistence
 Preferences preferences;
@@ -798,32 +795,53 @@ void savePositions() {
 }
 
 // ===========================
-// Web handler functions
+// Helper to get query parameter
 // ===========================
-void handleRoot() {
-  server.send(200, "text/html", htmlPage);
-}
-
-void handleMove() {
-  if (server.hasArg("dir") && server.hasArg("state")) {
-    String direction = server.arg("dir");
-    int state = server.arg("state").toInt();
-    if (direction == "up") movingUp = (state == 1);
-    else if (direction == "down") movingDown = (state == 1);
-    else if (direction == "left") movingLeft = (state == 1);
-    else if (direction == "right") movingRight = (state == 1);
-    server.send(200, "text/plain", "OK");
-  } else {
-    server.send(400, "text/plain", "Missing parameters");
+bool getQueryParam(httpd_req_t *req, const char* key, char* value, size_t maxLen) {
+  char query[128];
+  if (httpd_req_get_url_query_str(req, query, sizeof(query)) == ESP_OK) {
+    if (httpd_query_key_value(query, key, value, maxLen) == ESP_OK) {
+      return true;
+    }
   }
+  return false;
 }
 
-void handlePosition() {
-  String json = "{\"h\":" + String(horizontalAngle) + ",\"v\":" + String(verticalAngle) + "}";
-  server.send(200, "application/json", json);
+// ===========================
+// Web handler functions (esp_http_server - non-blocking)
+// ===========================
+static esp_err_t handle_root(httpd_req_t *req) {
+  httpd_resp_set_type(req, "text/html");
+  httpd_resp_send(req, htmlPage, strlen(htmlPage));
+  return ESP_OK;
 }
 
-void handleReset() {
+static esp_err_t handle_move(httpd_req_t *req) {
+  char dir[16], state[8];
+  if (getQueryParam(req, "dir", dir, sizeof(dir)) &&
+      getQueryParam(req, "state", state, sizeof(state))) {
+    int st = atoi(state);
+    if (strcmp(dir, "up") == 0) movingUp = (st == 1);
+    else if (strcmp(dir, "down") == 0) movingDown = (st == 1);
+    else if (strcmp(dir, "left") == 0) movingLeft = (st == 1);
+    else if (strcmp(dir, "right") == 0) movingRight = (st == 1);
+    httpd_resp_send(req, "OK", 2);
+  } else {
+    httpd_resp_set_status(req, "400 Bad Request");
+    httpd_resp_send(req, "Missing parameters", -1);
+  }
+  return ESP_OK;
+}
+
+static esp_err_t handle_position(httpd_req_t *req) {
+  char json[64];
+  snprintf(json, sizeof(json), "{\"h\":%d,\"v\":%d}", horizontalAngle, verticalAngle);
+  httpd_resp_set_type(req, "application/json");
+  httpd_resp_send(req, json, strlen(json));
+  return ESP_OK;
+}
+
+static esp_err_t handle_reset(httpd_req_t *req) {
   preferences.begin("turret", false);
   preferences.clear();
   preferences.end();
@@ -834,122 +852,125 @@ void handleReset() {
   positionsSaved = true;
   positionChanged = false;
   Serial.println("Reset to center");
-  server.send(200, "text/plain", "Reset complete");
+  httpd_resp_send(req, "Reset complete", -1);
+  return ESP_OK;
 }
 
-void handleShoot() {
-  if (server.hasArg("state")) {
-    String state = server.arg("state");
-    if (state == "start") {
+static esp_err_t handle_shoot(httpd_req_t *req) {
+  char state[16];
+  if (getQueryParam(req, "state", state, sizeof(state))) {
+    httpd_resp_set_type(req, "application/json");
+    if (strcmp(state, "start") == 0) {
       digitalWrite(RELAY_PIN_SPINNER, LOW);
       spinnerActive = true;
       delay(250);
       digitalWrite(RELAY_PIN_TRIGGER, LOW);
       triggerActive = true;
       Serial.println("FIRING...");
-      server.send(200, "application/json", "{\"status\":\"firing\"}");
-    } else if (state == "stop") {
+      httpd_resp_send(req, "{\"status\":\"firing\"}", -1);
+    } else if (strcmp(state, "stop") == 0) {
       digitalWrite(RELAY_PIN_TRIGGER, HIGH);
       digitalWrite(RELAY_PIN_SPINNER, HIGH);
       triggerActive = false;
       spinnerActive = false;
       Serial.println("STOPPED");
-      server.send(200, "application/json", "{\"status\":\"stopped\"}");
+      httpd_resp_send(req, "{\"status\":\"stopped\"}", -1);
     }
   } else {
-    server.send(400, "text/plain", "Missing state parameter");
+    httpd_resp_set_status(req, "400 Bad Request");
+    httpd_resp_send(req, "Missing state parameter", -1);
   }
+  return ESP_OK;
 }
 
-void handleLED() {
-  if (server.hasArg("brightness")) {
-    // New brightness control (0-255)
-    ledBrightness = server.arg("brightness").toInt();
-    ledBrightness = constrain(ledBrightness, 0, 255);
+static esp_err_t handle_led(httpd_req_t *req) {
+  char value[16];
+  httpd_resp_set_type(req, "application/json");
+
+  if (getQueryParam(req, "brightness", value, sizeof(value))) {
+    ledBrightness = atoi(value);
+    if (ledBrightness < 0) ledBrightness = 0;
+    if (ledBrightness > 255) ledBrightness = 255;
     ledcWrite(LED_FLASH_PIN, ledBrightness);
     Serial.printf("LED brightness: %d\n", ledBrightness);
-    server.send(200, "application/json", "{\"brightness\":" + String(ledBrightness) + "}");
-  } else if (server.hasArg("state")) {
-    // Legacy on/off support (uses 25% brightness to avoid WiFi issues)
-    String state = server.arg("state");
-    if (state == "on") {
-      ledBrightness = 64;  // 25% brightness - enough light, less power draw
+    char json[32];
+    snprintf(json, sizeof(json), "{\"brightness\":%d}", ledBrightness);
+    httpd_resp_send(req, json, strlen(json));
+  } else if (getQueryParam(req, "state", value, sizeof(value))) {
+    if (strcmp(value, "on") == 0) {
+      ledBrightness = 64;
       ledcWrite(LED_FLASH_PIN, ledBrightness);
       Serial.println("LED ON (25%)");
-      server.send(200, "application/json", "{\"led\":true,\"brightness\":64}");
-    } else if (state == "off") {
+      httpd_resp_send(req, "{\"led\":true,\"brightness\":64}", -1);
+    } else if (strcmp(value, "off") == 0) {
       ledBrightness = 0;
       ledcWrite(LED_FLASH_PIN, 0);
       Serial.println("LED OFF");
-      server.send(200, "application/json", "{\"led\":false,\"brightness\":0}");
+      httpd_resp_send(req, "{\"led\":false,\"brightness\":0}", -1);
     }
   } else {
-    server.send(400, "text/plain", "Missing state or brightness parameter");
+    httpd_resp_set_status(req, "400 Bad Request");
+    httpd_resp_send(req, "Missing parameter", -1);
   }
+  return ESP_OK;
 }
 
-void handleAdmin() {
-  server.send(200, "text/html", adminPage);
+static esp_err_t handle_admin(httpd_req_t *req) {
+  httpd_resp_set_type(req, "text/html");
+  httpd_resp_send(req, adminPage, strlen(adminPage));
+  return ESP_OK;
 }
 
-void handleStats() {
+static esp_err_t handle_stats(httpd_req_t *req) {
   sensor_t *s = esp_camera_sensor_get();
 
-  // Get frame dimensions based on framesize
   int frameWidth = 0, frameHeight = 0;
   switch(s->status.framesize) {
-    case 4: frameWidth = 320; frameHeight = 240; break;   // QVGA
-    case 5: frameWidth = 400; frameHeight = 296; break;   // CIF
-    case 6: frameWidth = 480; frameHeight = 320; break;   // HVGA
-    case 8: frameWidth = 640; frameHeight = 480; break;   // VGA
-    case 9: frameWidth = 800; frameHeight = 600; break;   // SVGA
-    case 10: frameWidth = 1024; frameHeight = 768; break; // XGA
-    case 12: frameWidth = 1280; frameHeight = 1024; break;// SXGA
-    case 13: frameWidth = 1600; frameHeight = 1200; break;// UXGA
+    case 4: frameWidth = 320; frameHeight = 240; break;
+    case 5: frameWidth = 400; frameHeight = 296; break;
+    case 6: frameWidth = 480; frameHeight = 320; break;
+    case 8: frameWidth = 640; frameHeight = 480; break;
+    case 9: frameWidth = 800; frameHeight = 600; break;
+    case 10: frameWidth = 1024; frameHeight = 768; break;
+    case 12: frameWidth = 1280; frameHeight = 1024; break;
+    case 13: frameWidth = 1600; frameHeight = 1200; break;
     default: frameWidth = 640; frameHeight = 480;
   }
 
-  // Read internal temperature (already in Celsius on ESP32)
   float tempC = temperatureRead();
+  char json[384];
+  snprintf(json, sizeof(json),
+    "{\"rssi\":%d,\"fps\":%.1f,\"framesize\":%d,\"quality\":%d,"
+    "\"frameWidth\":%d,\"frameHeight\":%d,\"freeHeap\":%u,\"freePsram\":%u,"
+    "\"psramFound\":%s,\"tempC\":%.1f,\"captureMs\":%lu,\"sendMs\":%lu,\"avgFrameKB\":%.1f}",
+    WiFi.RSSI(), currentFPS, s->status.framesize, s->status.quality,
+    frameWidth, frameHeight, ESP.getFreeHeap(), ESP.getFreePsram(),
+    psramFound() ? "true" : "false", tempC, avgCaptureTime, avgSendTime, avgFrameSize / 1024.0);
 
-  String json = "{";
-  json += "\"rssi\":" + String(WiFi.RSSI()) + ",";
-  json += "\"fps\":" + String(currentFPS, 1) + ",";
-  json += "\"framesize\":" + String(s->status.framesize) + ",";
-  json += "\"quality\":" + String(s->status.quality) + ",";
-  json += "\"frameWidth\":" + String(frameWidth) + ",";
-  json += "\"frameHeight\":" + String(frameHeight) + ",";
-  json += "\"freeHeap\":" + String(ESP.getFreeHeap()) + ",";
-  json += "\"freePsram\":" + String(ESP.getFreePsram()) + ",";
-  json += "\"psramFound\":" + String(psramFound() ? "true" : "false") + ",";
-  json += "\"tempC\":" + String(tempC, 1) + ",";
-  json += "\"captureMs\":" + String(avgCaptureTime) + ",";
-  json += "\"sendMs\":" + String(avgSendTime) + ",";
-  json += "\"avgFrameKB\":" + String(avgFrameSize / 1024.0, 1);
-  json += "}";
-
-  server.send(200, "application/json", json);
+  httpd_resp_set_type(req, "application/json");
+  httpd_resp_send(req, json, strlen(json));
+  return ESP_OK;
 }
 
-void handleConfig() {
+static esp_err_t handle_config(httpd_req_t *req) {
   sensor_t *s = esp_camera_sensor_get();
   bool changed = false;
+  char value[16];
 
-  if (server.hasArg("framesize")) {
-    int framesize = server.arg("framesize").toInt();
+  if (getQueryParam(req, "framesize", value, sizeof(value))) {
+    int framesize = atoi(value);
     s->set_framesize(s, (framesize_t)framesize);
     Serial.printf("Set framesize to %d\n", framesize);
     changed = true;
   }
 
-  if (server.hasArg("quality")) {
-    int quality = server.arg("quality").toInt();
+  if (getQueryParam(req, "quality", value, sizeof(value))) {
+    int quality = atoi(value);
     s->set_quality(s, quality);
     Serial.printf("Set quality to %d\n", quality);
     changed = true;
   }
 
-  // Save to persistent storage
   if (changed) {
     preferences.begin("camera", false);
     preferences.putInt("framesize", s->status.framesize);
@@ -958,11 +979,41 @@ void handleConfig() {
     Serial.println("Camera settings saved to flash");
   }
 
-  server.send(200, "application/json", "{\"success\":true}");
+  httpd_resp_set_type(req, "application/json");
+  httpd_resp_send(req, "{\"success\":true}", -1);
+  return ESP_OK;
 }
 
-void handleNotFound() {
-  server.send(404, "text/plain", "404: Not Found");
+// ===========================
+// Start control server (port 80) - runs on Core 0
+// ===========================
+void startControlServer() {
+  httpd_config_t config = HTTPD_DEFAULT_CONFIG();
+  config.server_port = 80;
+  config.core_id = 0;  // Run on Core 0 (WiFi core) - separate from main loop on Core 1
+
+  httpd_uri_t uri_root = { .uri = "/", .method = HTTP_GET, .handler = handle_root };
+  httpd_uri_t uri_move = { .uri = "/move", .method = HTTP_GET, .handler = handle_move };
+  httpd_uri_t uri_position = { .uri = "/position", .method = HTTP_GET, .handler = handle_position };
+  httpd_uri_t uri_reset = { .uri = "/reset", .method = HTTP_GET, .handler = handle_reset };
+  httpd_uri_t uri_shoot = { .uri = "/shoot", .method = HTTP_GET, .handler = handle_shoot };
+  httpd_uri_t uri_led = { .uri = "/led", .method = HTTP_GET, .handler = handle_led };
+  httpd_uri_t uri_admin = { .uri = "/admin", .method = HTTP_GET, .handler = handle_admin };
+  httpd_uri_t uri_stats = { .uri = "/stats", .method = HTTP_GET, .handler = handle_stats };
+  httpd_uri_t uri_config = { .uri = "/config", .method = HTTP_GET, .handler = handle_config };
+
+  if (httpd_start(&control_httpd, &config) == ESP_OK) {
+    httpd_register_uri_handler(control_httpd, &uri_root);
+    httpd_register_uri_handler(control_httpd, &uri_move);
+    httpd_register_uri_handler(control_httpd, &uri_position);
+    httpd_register_uri_handler(control_httpd, &uri_reset);
+    httpd_register_uri_handler(control_httpd, &uri_shoot);
+    httpd_register_uri_handler(control_httpd, &uri_led);
+    httpd_register_uri_handler(control_httpd, &uri_admin);
+    httpd_register_uri_handler(control_httpd, &uri_stats);
+    httpd_register_uri_handler(control_httpd, &uri_config);
+    Serial.println("Control server started on port 80 (Core 0)");
+  }
 }
 
 // ===========================
@@ -1086,20 +1137,8 @@ void setup() {
     Serial.println("\nWiFi connection failed!");
   }
 
-  // Setup web server routes
-  server.on("/", handleRoot);
-  server.on("/move", handleMove);
-  server.on("/position", handlePosition);
-  server.on("/reset", handleReset);
-  server.on("/shoot", handleShoot);
-  server.on("/led", handleLED);
-  server.on("/admin", handleAdmin);
-  server.on("/stats", handleStats);
-  server.on("/config", handleConfig);
-  server.onNotFound(handleNotFound);
-
-  server.begin();
-  Serial.println("Control server started on port 80");
+  // Start control server (non-blocking, runs on Core 0)
+  startControlServer();
 
   // Start stream server
   startStreamServer();
@@ -1108,11 +1147,9 @@ void setup() {
 }
 
 // ===========================
-// Loop
+// Loop - servo movement only (HTTP servers are non-blocking)
 // ===========================
 void loop() {
-  server.handleClient();
-
   unsigned long currentTime = millis();
 
   if (currentTime - lastMoveTime >= MOVE_DELAY) {
