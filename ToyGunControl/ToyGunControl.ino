@@ -627,16 +627,25 @@ const char* adminPage = R"rawliteral(
         .catch(err => console.error('Error:', err));
     }
 
-    // Auto-apply on resolution change
-    document.getElementById('resolution').addEventListener('change', applySettings);
+    // Lock UI when user starts interacting
+    document.getElementById('resolution').addEventListener('focus', () => {
+      lastUserChange = Date.now() + 10000;  // Lock for 10 seconds while focused
+    });
+    document.getElementById('resolution').addEventListener('change', () => {
+      lastUserChange = Date.now();  // Reset lock timer
+      applySettings();
+    });
 
-    // Auto-apply on quality change (with debounce)
-    let qualityTimeout;
+    document.getElementById('quality').addEventListener('focus', () => {
+      lastUserChange = Date.now() + 10000;  // Lock for 10 seconds while focused
+    });
     document.getElementById('quality').addEventListener('input', (e) => {
-      lastUserChange = Date.now();  // Lock UI immediately while dragging
+      lastUserChange = Date.now() + 10000;  // Keep locked while dragging
       document.getElementById('qualityVal').textContent = e.target.value;
-      clearTimeout(qualityTimeout);
-      qualityTimeout = setTimeout(applySettings, 300);
+    });
+    document.getElementById('quality').addEventListener('change', () => {
+      lastUserChange = Date.now();  // Reset lock timer
+      applySettings();
     });
 
     setInterval(updateStats, 1000);
