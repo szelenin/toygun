@@ -1005,11 +1005,15 @@ void setup() {
   // Check for PSRAM
   if (psramFound()) {
     config.fb_location = CAMERA_FB_IN_PSRAM;
+    config.fb_count = 2;  // Double buffer for smoother streaming
     Serial.println("PSRAM found, using for frame buffer");
   } else {
     config.fb_location = CAMERA_FB_IN_DRAM;
     config.frame_size = FRAMESIZE_QVGA;  // Smaller if no PSRAM
-    Serial.println("No PSRAM, using DRAM");
+    config.jpeg_quality = 20;  // More compression for faster streaming
+    config.fb_count = 1;  // Single buffer to save memory
+    config.grab_mode = CAMERA_GRAB_LATEST;  // Always get latest frame
+    Serial.println("No PSRAM, using DRAM with single buffer");
   }
 
   // Camera init
@@ -1058,6 +1062,7 @@ void setup() {
   }
 
   WiFi.setHostname(hostname);
+  WiFi.setSleep(false);  // Disable WiFi power saving - reduces latency
   Serial.printf("Connecting to WiFi: %s\n", ssid);
   WiFi.begin(ssid, password);
 
