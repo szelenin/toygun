@@ -400,17 +400,14 @@ const char* htmlPage = R"rawliteral(
     btnShoot.addEventListener('touchstart', (e) => { e.preventDefault(); startFiring(); });
     btnShoot.addEventListener('touchend', (e) => { e.preventDefault(); stopFiring(); });
 
-    // LED brightness slider
+    // LED brightness slider - only sends on release to avoid flooding
     const ledSlider = document.getElementById('ledSlider');
     const ledValue = document.getElementById('ledValue');
-    let ledTimeout;
     ledSlider.addEventListener('input', (e) => {
-      const val = e.target.value;
-      ledValue.textContent = Math.round(val / 255 * 100) + '%';
-      clearTimeout(ledTimeout);
-      ledTimeout = setTimeout(() => {
-        fetch('/led?brightness=' + val).catch(err => console.error('Error:', err));
-      }, 100);
+      ledValue.textContent = Math.round(e.target.value / 255 * 100) + '%';
+    });
+    ledSlider.addEventListener('change', (e) => {
+      fetch('/led?brightness=' + e.target.value).catch(err => console.error('Error:', err));
     });
 
     // Reset button
