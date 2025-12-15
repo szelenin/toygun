@@ -960,15 +960,15 @@ static esp_err_t handle_config(httpd_req_t *req) {
 
   if (getQueryParam(req, "framesize", value, sizeof(value))) {
     int framesize = atoi(value);
-    s->set_framesize(s, (framesize_t)framesize);
-    Serial.printf("Set framesize to %d\n", framesize);
+    int result = s->set_framesize(s, (framesize_t)framesize);
+    Serial.printf("Set framesize to %d, result: %d, actual: %d\n", framesize, result, s->status.framesize);
     changed = true;
   }
 
   if (getQueryParam(req, "quality", value, sizeof(value))) {
     int quality = atoi(value);
-    s->set_quality(s, quality);
-    Serial.printf("Set quality to %d\n", quality);
+    int result = s->set_quality(s, quality);
+    Serial.printf("Set quality to %d, result: %d, actual: %d\n", quality, result, s->status.quality);
     changed = true;
   }
 
