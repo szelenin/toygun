@@ -559,8 +559,8 @@ const char* adminPage = R"rawliteral(
   </div>
 
   <script>
-    let currentFramesize = 8;
-    let currentQuality = 12;
+    let lastUserChange = 0;  // Timestamp of last user change
+    const UI_LOCK_MS = 3000; // Don't overwrite UI for 3 seconds after user change
 
     // Update stats
     function updateStats() {
@@ -608,13 +608,9 @@ const char* adminPage = R"rawliteral(
           frameSizeEl.textContent = data.avgFrameKB.toFixed(1) + ' KB';
           frameSizeEl.className = 'stat-value' + (data.avgFrameKB < 50 ? '' : data.avgFrameKB < 100 ? ' warning' : ' bad');
 
-          // Only update UI if not user-modified
-          if (!document.activeElement || document.activeElement.id !== 'resolution') {
-            currentFramesize = data.framesize;
+          // Only update settings UI if user hasn't changed them recently
+          if (Date.now() - lastUserChange > UI_LOCK_MS) {
             document.getElementById('resolution').value = data.framesize;
-          }
-          if (!document.activeElement || document.activeElement.id !== 'quality') {
-            currentQuality = data.quality;
             document.getElementById('quality').value = data.quality;
             document.getElementById('qualityVal').textContent = data.quality;
           }
@@ -624,6 +620,7 @@ const char* adminPage = R"rawliteral(
 
     // Auto-apply function
     function applySettings() {
+      lastUserChange = Date.now();  // Lock UI updates
       const resolution = document.getElementById('resolution').value;
       const quality = document.getElementById('quality').value;
       fetch('/config?framesize=' + resolution + '&quality=' + quality)
@@ -636,6 +633,7 @@ const char* adminPage = R"rawliteral(
     // Auto-apply on quality change (with debounce)
     let qualityTimeout;
     document.getElementById('quality').addEventListener('input', (e) => {
+      lastUserChange = Date.now();  // Lock UI immediately while dragging
       document.getElementById('qualityVal').textContent = e.target.value;
       clearTimeout(qualityTimeout);
       qualityTimeout = setTimeout(applySettings, 300);
