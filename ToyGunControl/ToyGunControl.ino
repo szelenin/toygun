@@ -1013,6 +1013,7 @@ void startControlServer() {
   httpd_config_t config = HTTPD_DEFAULT_CONFIG();
   config.server_port = 80;
   config.core_id = 0;  // Run on Core 0 (WiFi core) - separate from main loop on Core 1
+  config.max_uri_handlers = 16;  // Default is 8, we have 9+ routes
 
   httpd_uri_t uri_root = { .uri = "/", .method = HTTP_GET, .handler = handle_root };
   httpd_uri_t uri_move = { .uri = "/move", .method = HTTP_GET, .handler = handle_move };
