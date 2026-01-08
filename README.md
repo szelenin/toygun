@@ -179,12 +179,14 @@ Use either:
 - Vin → 5V from LM2596
 - GND → Common ground
 
-## ESP32-CAM-MB Wiring Diagram
+## ESP32-CAM Wiring Diagram
 
-The ESP32-CAM-MB is a USB programmer base board with CH340 chip. The ESP32-CAM plugs directly onto it for easy programming via USB-C.
+### Programming with FT232RL FTDI Adapter
+
+Use the FT232RL FTDI USB-C to TTL adapter to program the ESP32-CAM.
 
 **Components:**
-- ESP32-CAM-MB USB Programmer Board: [Amazon B0CQVB6JFV](https://www.amazon.com/dp/B0CQVB6JFV)
+- FT232RL FTDI USB-C to TTL Adapter: [Amazon B0CQVB6JFV](https://www.amazon.com/dp/B0CQVB6JFV)
 - 1N5819 Schottky Diode (for power protection)
 
 ### Pin Mapping (ESP32-CAM)
@@ -198,7 +200,28 @@ The ESP32-CAM-MB is a USB programmer base board with CH340 chip. The ESP32-CAM p
 | 5V Power In | - | 5V |
 | Ground | - | GND |
 
-### Complete Wiring Diagram
+### Programming Wiring (FT232RL to ESP32-CAM)
+
+```
+FT232RL FTDI Adapter              ESP32-CAM
+(set jumper to 3.3V!)
+──────────────────                ─────────
+    GND ─────────────────────────→ GND
+    TX  ─────────────────────────→ U0R (GPIO 3)
+    RX  ─────────────────────────→ U0T (GPIO 1)
+    3.3V ────────────────────────→ (don't connect - use external 5V)
+
+                                  IO0 ───→ GND (jumper wire for programming mode)
+                                  5V  ←─── 5V Buck converter (through diode)
+```
+
+**Important:**
+- Set FTDI voltage jumper to **3.3V** (ESP32 uses 3.3V logic)
+- Power ESP32-CAM from 5V buck converter, NOT from FTDI's 3.3V/5V pin
+- Connect IO0 to GND before powering on to enter programming mode
+- Remove IO0-GND jumper after programming to run normally
+
+### Complete Wiring Diagram (Normal Operation)
 
 ```
                          12V Power Supply
@@ -219,25 +242,23 @@ The ESP32-CAM-MB is a USB programmer base board with CH340 chip. The ESP32-CAM p
                │                           │              │
                │                           │              │
     ┌──────────┴──────────┐    ┌───────────┴──────────────┴───────────┐
-    │       SERVOS        │    │           ESP32-CAM-MB               │
-    │                     │    │  ┌─────────────────────────────┐     │
-    │  ┌────────────────┐ │    │  │        ESP32-CAM            │     │
-    │  │ Horizontal     │ │    │  │       (plugs in)            │     │
-    │  │ VCC ← 6V Buck  │ │    │  └─────────────────────────────┘     │
-    │  │ GND ← Common   │ │    │                                      │
-    │  │ SIG ──────────────────────→ IO12                             │
-    │  └────────────────┘ │    │                                      │
-    │                     │    │  5V ←── 5V Buck (through diode)      │
-    │  ┌────────────────┐ │    │  GND ←── Common GND                  │
+    │       SERVOS        │    │              ESP32-CAM               │
+    │                     │    │                                      │
+    │  ┌────────────────┐ │    │  5V ←── 5V Buck (through diode)      │
+    │  │ Horizontal     │ │    │  GND ←── Common GND                  │
+    │  │ VCC ← 6V Buck  │ │    │                                      │
+    │  │ GND ← Common   │ │    │  IO12 ──→ Horizontal Servo Signal    │
+    │  │ SIG ───────────────────→ IO12                                │
+    │  └────────────────┘ │    │  IO13 ──→ Vertical Servo Signal      │
+    │                     │    │  IO14 ──→ Relay IN1 (Trigger)        │
+    │  ┌────────────────┐ │    │  IO15 ──→ Relay IN2 (Spinner)        │
     │  │ Vertical       │ │    │                                      │
-    │  │ VCC ← 6V Buck  │ │    │  IO12 ──→ Horizontal Servo Signal    │
-    │  │ GND ← Common   │ │    │  IO13 ──→ Vertical Servo Signal      │
-    │  │ SIG ──────────────────────→ IO13                             │
-    │  └────────────────┘ │    │  IO14 ──→ Relay IN1 (Trigger)        │
-    │                     │    │  IO15 ──→ Relay IN2 (Spinner)        │
-    └─────────────────────┘    │                                      │
-                               │  [USB-C] (for programming only)      │
-                               └──────────────────────────────────────┘
+    │  │ VCC ← 6V Buck  │ │    │  For programming only:               │
+    │  │ GND ← Common   │ │    │  U0R ←── FTDI TX                     │
+    │  │ SIG ───────────────────→ IO13                                │
+    │  └────────────────┘ │    │  U0T ──→ FTDI RX                     │
+    │                     │    │  IO0 ──→ GND (only during upload)    │
+    └─────────────────────┘    └──────────────────────────────────────┘
 
     ┌─────────────────────┐
     │    2-CH RELAY       │
@@ -251,12 +272,12 @@ The ESP32-CAM-MB is a USB programmer base board with CH340 chip. The ESP32-CAM p
 
 ### Power Protection with Diode
 
-The 1N5819 Schottky diode prevents "backfeeding" when both USB and barrel power are connected:
+The 1N5819 Schottky diode prevents "backfeeding" when FTDI is connected:
 
 ```
-USB 5V (from computer) ─────────────────┐
-                                        ├──→ ESP32-CAM-MB 5V
-5V Buck (5.3V output) ───►|─────────────┘
+FTDI (don't use for power)
+
+5V Buck (5.3V output) ───►|─────────────→ ESP32-CAM 5V
                         1N5819
                     (0.3V drop → 5.0V)
 ```
@@ -264,17 +285,26 @@ USB 5V (from computer) ─────────────────┐
 **Setup:**
 1. Adjust 5V buck converter to output **5.3V** (compensates for diode drop)
 2. Connect diode: cathode (stripe) toward ESP32, anode toward buck converter
-3. USB power works normally for programming (no diode needed on USB line)
 
-### Programming the ESP32-CAM
+### Programming Steps
 
-1. Plug ESP32-CAM onto the MB base board
-2. Connect USB-C cable to computer
-3. In Arduino IDE: **Tools → Board → "AI Thinker ESP32-CAM"**
-4. Select the correct COM port
-5. Click Upload (MB board handles boot mode automatically)
+1. **Connect FTDI to ESP32-CAM:**
+   - FTDI GND → ESP32-CAM GND
+   - FTDI TX → ESP32-CAM U0R
+   - FTDI RX → ESP32-CAM U0T
 
-**Note:** Disconnect barrel power when programming via USB to avoid backfeeding.
+2. **Enter programming mode:**
+   - Connect IO0 to GND (jumper wire)
+   - Power on or reset ESP32-CAM
+
+3. **Upload:**
+   - Arduino IDE: **Tools → Board → "AI Thinker ESP32-CAM"**
+   - Select correct COM port
+   - Click Upload
+
+4. **Run normally:**
+   - Disconnect IO0 from GND
+   - Reset or power cycle ESP32-CAM
 
 ### Alternative GPIO Mapping (If Boot Issues)
 
