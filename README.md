@@ -212,15 +212,21 @@ FT232RL FTDI Adapter              ESP32-CAM
     RX  ─────────────────────────→ U0T (GPIO 1)
     3.3V ────────────────────────→ (don't connect - use external 5V)
 
-                                  IO0 ───→ GND (jumper wire for programming mode)
-                                  5V  ←─── 5V Buck converter (through diode)
+                                           ┌────○────┐
+                                  IO0 ─────┤  SWITCH ├───→ GND
+                                           └─────────┘
+                                  5V  ←─── 5V Buck (5.3V) ──►|── 1N5819
 ```
+
+**Switch operation:**
+- **Switch CLOSED** = Programming mode (IO0 grounded)
+- **Switch OPEN** = Normal run mode (IO0 floating)
 
 **Important:**
 - Set FTDI voltage jumper to **3.3V** (ESP32 uses 3.3V logic)
 - Power ESP32-CAM from 5V buck converter, NOT from FTDI's 3.3V/5V pin
-- Connect IO0 to GND before powering on to enter programming mode
-- Remove IO0-GND jumper after programming to run normally
+- Close switch before powering on to enter programming mode
+- Open switch after programming and reset to run normally
 
 ### Complete Wiring Diagram (Normal Operation)
 
@@ -254,11 +260,11 @@ FT232RL FTDI Adapter              ESP32-CAM
     │                     │    │  IO14 ──→ Relay IN1 (Trigger)        │
     │  ┌────────────────┐ │    │  IO15 ──→ Relay IN2 (Spinner)        │
     │  │ Vertical       │ │    │                                      │
-    │  │ VCC ← 6V Buck  │ │    │  For programming only:               │
+    │  │ VCC ← 6V Buck  │ │    │  For programming:                    │
     │  │ GND ← Common   │ │    │  U0R ←── FTDI TX                     │
     │  │ SIG ───────────────────→ IO13                                │
     │  └────────────────┘ │    │  U0T ──→ FTDI RX                     │
-    │                     │    │  IO0 ──→ GND (only during upload)    │
+    │                     │    │  IO0 ──┤○ SWITCH ○├── GND            │
     └─────────────────────┘    └──────────────────────────────────────┘
 
     ┌─────────────────────┐
@@ -295,7 +301,7 @@ FTDI (don't use for power)
    - FTDI RX → ESP32-CAM U0T
 
 2. **Enter programming mode:**
-   - Connect IO0 to GND (jumper wire)
+   - Close the IO0 switch (IO0 → GND)
    - Power on or reset ESP32-CAM
 
 3. **Upload:**
@@ -304,7 +310,7 @@ FTDI (don't use for power)
    - Click Upload
 
 4. **Run normally:**
-   - Disconnect IO0 from GND
+   - Open the IO0 switch
    - Reset or power cycle ESP32-CAM
 
 ### Alternative GPIO Mapping (If Boot Issues)
