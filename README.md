@@ -179,14 +179,13 @@ Use either:
 - Vin → 5V from LM2596
 - GND → Common ground
 
-## ESP32-CAM Wiring Diagram
+## ESP32-CAM-MB Wiring Diagram
 
-When using ESP32-CAM instead of ESP32-WROOM-32E, use this wiring configuration.
+The ESP32-CAM-MB is a USB programmer base board with CH340 chip. The ESP32-CAM plugs directly onto it for easy programming via USB-C.
 
-**Important Notes:**
-- GPIO 12 must be LOW at boot (servo signal is LOW when idle, so this works)
-- Not using SD card slot (pins repurposed for servos/relays)
-- Camera uses internal pins (no conflict with our GPIOs)
+**Components:**
+- ESP32-CAM-MB USB Programmer Board: [Amazon B0CQVB6JFV](https://www.amazon.com/dp/B0CQVB6JFV)
+- 1N5819 Schottky Diode (for power protection)
 
 ### Pin Mapping (ESP32-CAM)
 
@@ -199,41 +198,83 @@ When using ESP32-CAM instead of ESP32-WROOM-32E, use this wiring configuration.
 | 5V Power In | - | 5V |
 | Ground | - | GND |
 
-### ESP32-CAM Wiring Diagram
+### Complete Wiring Diagram
 
-```mermaid
-flowchart LR
-    subgraph Power
-        LM[LM2596 5V Out]
-        CG[Common Ground]
-    end
-
-    subgraph ESP32-CAM
-        V5[5V]
-        GND[GND]
-        IO12[IO12]
-        IO13[IO13]
-        IO14[IO14]
-        IO15[IO15]
-    end
-
-    subgraph Servos
-        HS[Horizontal Servo Signal]
-        VS[Vertical Servo Signal]
-    end
-
-    subgraph Relays
-        R1[Trigger Relay IN1]
-        R2[Spinner Relay IN2]
-    end
-
-    LM --> V5
-    CG --> GND
-    IO12 --> HS
-    IO13 --> VS
-    IO14 --> R1
-    IO15 --> R2
 ```
+                         12V Power Supply
+                               │
+               ┌───────────────┴───────────────┐
+               │                               │
+        ┌──────┴──────┐                 ┌──────┴──────┐
+        │  6V Buck    │                 │   5V Buck   │
+        │  (Servos)   │                 │ (ESP32+Relay)│
+        └──────┬──────┘                 └──────┬──────┘
+               │                               │
+            6V │ GND                    5.3V+  │ GND
+               │  │                        │   │
+               │  │                   1N5819   │
+               │  │                     ►|     │
+               │  │                        │   │
+               │  └────────────────────────┼───┴──── COMMON GND
+               │                           │              │
+               │                           │              │
+    ┌──────────┴──────────┐    ┌───────────┴──────────────┴───────────┐
+    │       SERVOS        │    │           ESP32-CAM-MB               │
+    │                     │    │  ┌─────────────────────────────┐     │
+    │  ┌────────────────┐ │    │  │        ESP32-CAM            │     │
+    │  │ Horizontal     │ │    │  │       (plugs in)            │     │
+    │  │ VCC ← 6V Buck  │ │    │  └─────────────────────────────┘     │
+    │  │ GND ← Common   │ │    │                                      │
+    │  │ SIG ──────────────────────→ IO12                             │
+    │  └────────────────┘ │    │                                      │
+    │                     │    │  5V ←── 5V Buck (through diode)      │
+    │  ┌────────────────┐ │    │  GND ←── Common GND                  │
+    │  │ Vertical       │ │    │                                      │
+    │  │ VCC ← 6V Buck  │ │    │  IO12 ──→ Horizontal Servo Signal    │
+    │  │ GND ← Common   │ │    │  IO13 ──→ Vertical Servo Signal      │
+    │  │ SIG ──────────────────────→ IO13                             │
+    │  └────────────────┘ │    │  IO14 ──→ Relay IN1 (Trigger)        │
+    │                     │    │  IO15 ──→ Relay IN2 (Spinner)        │
+    └─────────────────────┘    │                                      │
+                               │  [USB-C] (for programming only)      │
+                               └──────────────────────────────────────┘
+
+    ┌─────────────────────┐
+    │    2-CH RELAY       │
+    │                     │
+    │  VCC ←── 5V Buck    │
+    │  GND ←── Common GND │
+    │  IN1 ←── IO14       │
+    │  IN2 ←── IO15       │
+    └─────────────────────┘
+```
+
+### Power Protection with Diode
+
+The 1N5819 Schottky diode prevents "backfeeding" when both USB and barrel power are connected:
+
+```
+USB 5V (from computer) ─────────────────┐
+                                        ├──→ ESP32-CAM-MB 5V
+5V Buck (5.3V output) ───►|─────────────┘
+                        1N5819
+                    (0.3V drop → 5.0V)
+```
+
+**Setup:**
+1. Adjust 5V buck converter to output **5.3V** (compensates for diode drop)
+2. Connect diode: cathode (stripe) toward ESP32, anode toward buck converter
+3. USB power works normally for programming (no diode needed on USB line)
+
+### Programming the ESP32-CAM
+
+1. Plug ESP32-CAM onto the MB base board
+2. Connect USB-C cable to computer
+3. In Arduino IDE: **Tools → Board → "AI Thinker ESP32-CAM"**
+4. Select the correct COM port
+5. Click Upload (MB board handles boot mode automatically)
+
+**Note:** Disconnect barrel power when programming via USB to avoid backfeeding.
 
 ### Alternative GPIO Mapping (If Boot Issues)
 
