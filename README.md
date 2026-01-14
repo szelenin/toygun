@@ -59,11 +59,17 @@ This will mount another servo to move the gun vertically:
 | **ESP32 DevKit** | 2×ESP32-WROOM-32E Module USB-C 4MB | [Amazon B0D6BH4K9B](https://www.amazon.com/dp/B0D6BH4K9B) |
 | **ESP32-CAM** | 2×ESP32-CAM with OV2640 Camera + MB Programmer Board | [Amazon B0948ZFTQZ](https://www.amazon.com/dp/B0948ZFTQZ) |
 | **FTDI Adapter** | FT232RL USB-C to TTL Serial Converter 3.3V/5V 6Pin | [Amazon B0CQVB6JFV](https://www.amazon.com/dp/B0CQVB6JFV) |
-| **6V Buck Converter** | YRDZXG 12V to 6V 10A 60W Waterproof (for servos) | [Amazon B0CSPTCP5L](https://www.amazon.com/dp/B0CSPTCP5L) |
-| **5V Buck Converter** | LM2596 DC-DC Step Down Module (for ESP32) | [Amazon B0D7ZT7KPH](https://www.amazon.com/dp/B0D7ZT7KPH) |
+| **Buck Converter (×2)** | DROK Mini 5pcs DC 4.5-20V to 5V 3A 10W Adjustable/Fixed | [Amazon B096RC71DC](https://www.amazon.com/dp/B096RC71DC) |
+| **Diode** | 1N5819 Schottky Diode (for power protection) | Any electronics store |
 | **12V Power Supply** | 12V 6A 72W Wall Adapter with 5.5mm×2.1mm barrel jack | [Amazon B08ZC7J3BZ](https://www.amazon.com/dp/B08ZC7J3BZ) |
 | **Soldering Iron** | YIHUA 926 III 60W Digital Soldering Station Kit | [Amazon B082F1WKP9](https://www.amazon.com/dp/B082F1WKP9) |
 | **Jumper Wires** | Breadboard jumper wire kit | Required for prototyping |
+
+**Alternative Buck Converters:**
+| Component | Description | Amazon Link |
+|-----------|-------------|-------------|
+| **6V Buck (larger)** | YRDZXG 12V to 6V 10A 60W Waterproof | [Amazon B0CSPTCP5L](https://www.amazon.com/dp/B0CSPTCP5L) |
+| **5V Buck (larger)** | LM2596 DC-DC Step Down Module | [Amazon B0D7ZT7KPH](https://www.amazon.com/dp/B0D7ZT7KPH) |
 
 ### Optional Battery Setup (For Portable Operation)
 
@@ -80,18 +86,26 @@ Wall Power Option (Stationary):
 ================================
 [12V 6A Wall Adapter]
     │
-    ├──> [YRDZXG 12V→6V Buck] ──> Servos (6V, up to 10A)
+    ├──> [DROK Mini @ 6V] ──> Servos (6V, up to 2A)
     │
-    └──> [LM2596 12V→5V Buck] ──> ESP32 + Relay + Camera (5V)
+    └──> [DROK Mini @ 5.3V] ──►|──> ESP32 + Relay (5V after diode)
+                             1N5819
+                               │
+                          [FTDI VCC] (for programming)
 
 Battery Option (Portable):
 ===========================
 [2S LiPo 7.4V]
     │
-    ├──> [6V 10A BEC] ──> Servos
+    ├──> [DROK Mini @ 6V] ──> Servos
     │
-    └──> [5V Buck Converter] ──> ESP32 + Relay + Camera
+    └──> [DROK Mini @ 5.3V] ──►|──> ESP32 + Relay
+                             1N5819
 ```
+
+**DROK Mini Setup:**
+- **Module 1:** Adjust potentiometer to **6V** output (for servos)
+- **Module 2:** Adjust potentiometer to **5.3V** output (compensates for diode drop → 5V)
 
 **Important:** All grounds must be connected to a common ground!
 
@@ -156,28 +170,28 @@ Use either:
 
 ### Servo Connections
 - **Servo 1 (Horizontal):**
-  - Red (Power) → 6V from buck converter
+  - Red (Power) → 6V from DROK Mini
   - Brown (GND) → Common ground
   - Orange (Signal) → ESP32 GPIO 12
 
 - **Servo 2 (Vertical):**
-  - Red (Power) → 6V from buck converter
+  - Red (Power) → 6V from DROK Mini
   - Brown (GND) → Common ground
   - Orange (Signal) → ESP32 GPIO 13
 
 ### Relay Connections (2 relays for firing mechanism)
 - **Relay 1 (Spinner Motor):**
-  - VCC → 5V from LM2596
+  - VCC → Common 5V Rail
   - GND → Common ground
   - Signal → ESP32 GPIO 14
 
 - **Relay 2 (Trigger):**
-  - VCC → 5V from LM2596
+  - VCC → Common 5V Rail
   - GND → Common ground
   - Signal → ESP32 GPIO 15
 
 ### ESP32 Power
-- Vin → 5V from LM2596
+- Vin → Common 5V Rail (from DROK Mini 5.3V through diode)
 - GND → Common ground
 
 ## ESP32-CAM Wiring Diagram
@@ -210,12 +224,13 @@ FT232RL FTDI Adapter              ESP32-CAM
     GND ─────────────────────────→ GND
     TX  ─────────────────────────→ U0R (GPIO 3)
     RX  ─────────────────────────→ U0T (GPIO 1)
-    3.3V ────────────────────────→ (don't connect - use external 5V)
+    VCC ─────────────────────────→ 5V (common 5V rail, after diode)
 
                                            ┌────○────┐
                                   IO0 ─────┤  SWITCH ├───→ GND
                                            └─────────┘
-                                  5V  ←─── 5V Buck (5.3V) ──►|── 1N5819
+
+DROK Mini (5.3V) ──►|── 1N5819 ──→ 5V (common 5V rail)
 ```
 
 **Switch operation:**
@@ -224,7 +239,8 @@ FT232RL FTDI Adapter              ESP32-CAM
 
 **Important:**
 - Set FTDI voltage jumper to **3.3V** (ESP32 uses 3.3V logic)
-- Power ESP32-CAM from 5V buck converter, NOT from FTDI's 3.3V/5V pin
+- FTDI VCC connects to the common 5V rail (after the diode)
+- The diode allows safe power from either source (DROK OR FTDI)
 - Close switch before powering on to enter programming mode
 - Open switch after programming and reset to run normally
 
@@ -236,8 +252,9 @@ FT232RL FTDI Adapter              ESP32-CAM
                ┌───────────────┴───────────────┐
                │                               │
         ┌──────┴──────┐                 ┌──────┴──────┐
-        │  6V Buck    │                 │   5V Buck   │
-        │  (Servos)   │                 │ (ESP32+Relay)│
+        │ DROK Mini   │                 │ DROK Mini   │
+        │  @ 6V       │                 │  @ 5.3V     │
+        │  (Servos)   │                 │  (ESP32)    │
         └──────┬──────┘                 └──────┬──────┘
                │                               │
             6V │ GND                    5.3V+  │ GND
@@ -245,22 +262,25 @@ FT232RL FTDI Adapter              ESP32-CAM
                │  │                   1N5819   │
                │  │                     ►|     │
                │  │                        │   │
-               │  └────────────────────────┼───┴──── COMMON GND
-               │                           │              │
-               │                           │              │
-    ┌──────────┴──────────┐    ┌───────────┴──────────────┴───────────┐
+               │  │              ┌─────────┴───┼──── COMMON 5V RAIL
+               │  │              │             │
+               │  │         FTDI VCC          │
+               │  │              │             │
+               │  └──────────────┼─────────────┴──── COMMON GND
+               │                 │                        │
+    ┌──────────┴──────────┐    ┌─┴────────────────────────┴───────────┐
     │       SERVOS        │    │              ESP32-CAM               │
     │                     │    │                                      │
-    │  ┌────────────────┐ │    │  5V ←── 5V Buck (through diode)      │
+    │  ┌────────────────┐ │    │  5V ←── Common 5V Rail               │
     │  │ Horizontal     │ │    │  GND ←── Common GND                  │
-    │  │ VCC ← 6V Buck  │ │    │                                      │
+    │  │ VCC ← 6V DROK  │ │    │                                      │
     │  │ GND ← Common   │ │    │  IO12 ──→ Horizontal Servo Signal    │
     │  │ SIG ───────────────────→ IO12                                │
     │  └────────────────┘ │    │  IO13 ──→ Vertical Servo Signal      │
     │                     │    │  IO14 ──→ Relay IN1 (Trigger)        │
     │  ┌────────────────┐ │    │  IO15 ──→ Relay IN2 (Spinner)        │
     │  │ Vertical       │ │    │                                      │
-    │  │ VCC ← 6V Buck  │ │    │  For programming:                    │
+    │  │ VCC ← 6V DROK  │ │    │  For programming:                    │
     │  │ GND ← Common   │ │    │  U0R ←── FTDI TX                     │
     │  │ SIG ───────────────────→ IO13                                │
     │  └────────────────┘ │    │  U0T ──→ FTDI RX                     │
@@ -270,7 +290,7 @@ FT232RL FTDI Adapter              ESP32-CAM
     ┌─────────────────────┐
     │    2-CH RELAY       │
     │                     │
-    │  VCC ←── 5V Buck    │
+    │  VCC ←── Common 5V  │
     │  GND ←── Common GND │
     │  IN1 ←── IO14       │
     │  IN2 ←── IO15       │
@@ -279,19 +299,25 @@ FT232RL FTDI Adapter              ESP32-CAM
 
 ### Power Protection with Diode
 
-The 1N5819 Schottky diode prevents "backfeeding" when FTDI is connected:
+The 1N5819 Schottky diode allows safe dual power sources (DROK converter AND FTDI):
 
 ```
-FTDI (don't use for power)
-
-5V Buck (5.3V output) ───►|─────────────→ ESP32-CAM 5V
-                        1N5819
-                    (0.3V drop → 5.0V)
+DROK 5.3V ───►|─────┬─────────→ ESP32-CAM 5V
+            1N5819  │
+                    ├─────────→ Relay VCC
+                    │
+FTDI VCC ───────────┘
+                 (Common 5V Rail)
 ```
+
+**How it works:**
+- **DROK ON:** 5.3V through diode = 5.0V powers everything, diode blocks backflow
+- **DROK OFF:** FTDI 5V powers ESP32 for bench programming, diode blocks backflow to DROK
 
 **Setup:**
-1. Adjust 5V buck converter to output **5.3V** (compensates for diode drop)
-2. Connect diode: cathode (stripe) toward ESP32, anode toward buck converter
+1. Adjust DROK potentiometer to output **5.3V** (compensates for 0.3V diode drop)
+2. Connect diode: anode (no stripe) to DROK OUT+, cathode (stripe) to 5V rail
+3. Connect FTDI VCC directly to the common 5V rail (after the diode)
 
 ### Programming Steps
 
@@ -299,10 +325,11 @@ FTDI (don't use for power)
    - FTDI GND → ESP32-CAM GND
    - FTDI TX → ESP32-CAM U0R
    - FTDI RX → ESP32-CAM U0T
+   - FTDI VCC → Common 5V Rail (powers ESP32 when DROK is off)
 
 2. **Enter programming mode:**
    - Close the IO0 switch (IO0 → GND)
-   - Power on or reset ESP32-CAM
+   - Connect FTDI to USB (powers ESP32 via VCC)
 
 3. **Upload:**
    - Arduino IDE: **Tools → Board → "AI Thinker ESP32-CAM"**
@@ -343,7 +370,7 @@ Watch the full demo showing the hardware setup, servo control, and web UI in act
    - Attach gun to servo assembly
 
 3. **Wire Electronics**
-   - Connect power supplies (buck converters)
+   - Connect power supplies (DROK Mini converters)
    - Wire servos to power and ESP32
    - Connect relay to gun trigger mechanism
    - Mount IR camera
@@ -413,8 +440,8 @@ Reference documentation for the ESP32-WROOM-32E development board.
 To program an ESP32-CAM using ESP32-WROOM-32E as a USB-to-Serial adapter:
 
 ```
-ESP32-WROOM-32E              ESP32-CAM              Power Source (LM2596)
-───────────────              ─────────              ─────────────────────
+ESP32-WROOM-32E              ESP32-CAM              Power Source (DROK Mini)
+───────────────              ─────────              ────────────────────────
 EN ──────→ GND
 TXD0 (GPIO 1) ────────────→  U0R
 RXD0 (GPIO 3) ────────────→  U0T
@@ -431,8 +458,8 @@ GND ──────────────────────→  GND  
 | 2 | WROOM TXD0 (GPIO 1) | CAM U0R | Serial data TX → RX |
 | 3 | WROOM RXD0 (GPIO 3) | CAM U0T | Serial data RX → TX |
 | 4 | WROOM GND | CAM GND | Common ground |
-| 5 | LM2596 5V OUT | CAM 5V | Power to ESP32-CAM |
-| 6 | LM2596 GND | CAM GND | Power ground (shared) |
+| 5 | DROK 5V OUT | CAM 5V | Power to ESP32-CAM |
+| 6 | DROK GND | CAM GND | Power ground (shared) |
 | 7 | CAM IO0 | CAM GND | Enables programming/flash mode |
 
 **After uploading:** Disconnect IO0 from GND and reset/power-cycle the ESP32-CAM to run normally.
