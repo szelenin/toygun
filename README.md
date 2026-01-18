@@ -194,6 +194,43 @@ Use either:
 - Vin → Common 5V Rail (from DROK Mini 5.3V through diode)
 - GND → Common ground
 
+### Perfboard Connector Pinout
+
+10-pin header for connecting servos and relay to the perfboard (active-low relay - control pins accent GND, not VCC):
+
+```
+(View from bottom of board)
+
+Pin 1                                      Pin 10
+  │                                          │
+  ▼                                          ▼
+┌────┬────┬────┬────┬────┬────┬────┬────┬────┬────┐
+│IO12│ 6V │GND │IO13│ 6V │GND │GND │IO15│IO14│ 5V │
+└────┴────┴────┴────┴────┴────┴────┴────┴────┴────┘
+  │    │    │    │    │    │    │    │    │    │
+  └────┴────┴────┘    └────┴────┘    └────┴────┴────┘
+   Horizontal          Vertical         Relay
+     Servo              Servo          Module
+```
+
+| Pin | Signal | Voltage | Connects To |
+|-----|--------|---------|-------------|
+| 1 | IO12 | 3.3V logic | Horizontal Servo Signal (Orange) |
+| 2 | 6V | 6V | Horizontal Servo VCC (Red) |
+| 3 | GND | 0V | Horizontal Servo GND (Brown) |
+| 4 | IO13 | 3.3V logic | Vertical Servo Signal (Orange) |
+| 5 | 6V | 6V | Vertical Servo VCC (Red) |
+| 6 | GND | 0V | Vertical Servo GND (Brown) |
+| 7 | GND | 0V | Relay GND |
+| 8 | IO15 | 3.3V logic | Relay IN2 (Spinner) |
+| 9 | IO14 | 3.3V logic | Relay IN1 (Trigger) |
+| 10 | 5V | 5V | Relay VCC |
+
+**Grouping:**
+- **Pins 1-3:** Horizontal Servo (Signal, Power, Ground)
+- **Pins 4-6:** Vertical Servo (Signal, Power, Ground)
+- **Pins 7-10:** Relay Module (GND, IN2, IN1, VCC)
+
 ## ESP32-CAM Wiring Diagram
 
 ### Programming with FT232RL FTDI Adapter
