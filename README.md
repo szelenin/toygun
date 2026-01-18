@@ -201,16 +201,16 @@ Use either:
 ```
 (View from top of board - camera/face view)
 
-Pin 10                                     Pin 1
+Pin 1                                      Pin 10
   │                                          │
   ▼                                          ▼
 ┌────┬────┬────┬────┬────┬────┬────┬────┬────┬────┐
-│ 5V │IO14│IO15│GND │GND │ 6V │IO13│GND │ 6V │IO12│
+│IO12│ 6V │GND │IO13│ 6V │GND │GND │IO15│IO14│ 5V │
 └────┴────┴────┴────┴────┴────┴────┴────┴────┴────┘
   │    │    │    │    │    │    │    │    │    │
-  └────┴────┴────┴────┘    └────┴────┴────┘    └────┘
-        Relay               Vertical      Horizontal
-       Module                Servo          Servo
+  └────┴────┴────┘    └────┴────┘    └────┴────┴────┘
+   Horizontal          Vertical         Relay
+     Servo              Servo          Module
 ```
 
 | Pin | Signal | Voltage | Connects To |
@@ -226,7 +226,7 @@ Pin 10                                     Pin 1
 | 9 | IO14 | 3.3V logic | Relay IN1 (Trigger) |
 | 10 | 5V | 5V | Relay VCC |
 
-**Grouping (right to left when viewing from top):**
+**Grouping (left to right when viewing from top):**
 - **Pins 1-3:** Horizontal Servo (Signal, Power, Ground)
 - **Pins 4-6:** Vertical Servo (Signal, Power, Ground)
 - **Pins 7-10:** Relay Module (GND, IN2, IN1, VCC)
