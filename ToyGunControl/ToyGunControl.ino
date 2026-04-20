@@ -63,12 +63,7 @@ const char* ssid = "Edgar";
 const char* password = "Password!23";
 const char* hostname = "lizardgun3000";  // Access via http://lizardgun3000.local
 
-// Static IP configuration (optional - comment out to use DHCP)
-IPAddress local_IP(192, 168, 86, 42);
-IPAddress gateway(192, 168, 86, 1);
-IPAddress subnet(255, 255, 255, 0);
-IPAddress primaryDNS(192, 168, 86, 1);
-IPAddress secondaryDNS(8, 8, 8, 8);
+// Using DHCP - access via http://lizardgun3000.local
 
 // GPIO pin definitions for servos and relays
 #define SERVO_PIN_HORIZONTAL 12
@@ -767,9 +762,9 @@ static esp_err_t stream_handler(httpd_req_t *req) {
 void startStreamServer() {
   httpd_config_t config = HTTPD_DEFAULT_CONFIG();
   config.server_port = 81;
-  config.ctrl_port = 32769;  // Different control port than default (32768)
-  config.recv_wait_timeout = 1;   // 1 second timeout
-  config.send_wait_timeout = 1;   // 1 second timeout - kill dead connections fast
+  config.ctrl_port = 32769;
+  config.recv_wait_timeout = 1;
+  config.send_wait_timeout = 1;
 
   httpd_uri_t stream_uri = {
     .uri = "/stream",
@@ -778,9 +773,12 @@ void startStreamServer() {
     .user_ctx = NULL
   };
 
-  if (httpd_start(&stream_httpd, &config) == ESP_OK) {
+  esp_err_t ret = httpd_start(&stream_httpd, &config);
+  if (ret == ESP_OK) {
     httpd_register_uri_handler(stream_httpd, &stream_uri);
     Serial.println("Stream server started on port 81");
+  } else {
+    Serial.printf("Stream server FAILED to start: 0x%x\n", ret);
   }
 }
 
@@ -1012,8 +1010,7 @@ static esp_err_t handle_config(httpd_req_t *req) {
 void startControlServer() {
   httpd_config_t config = HTTPD_DEFAULT_CONFIG();
   config.server_port = 80;
-  config.core_id = 0;  // Run on Core 0 (WiFi core) - separate from main loop on Core 1
-  config.max_uri_handlers = 16;  // Default is 8, we have 9+ routes
+  config.max_uri_handlers = 16;
 
   httpd_uri_t uri_root = { .uri = "/", .method = HTTP_GET, .handler = handle_root };
   httpd_uri_t uri_move = { .uri = "/move", .method = HTTP_GET, .handler = handle_move };
@@ -1025,7 +1022,8 @@ void startControlServer() {
   httpd_uri_t uri_stats = { .uri = "/stats", .method = HTTP_GET, .handler = handle_stats };
   httpd_uri_t uri_config = { .uri = "/config", .method = HTTP_GET, .handler = handle_config };
 
-  if (httpd_start(&control_httpd, &config) == ESP_OK) {
+  esp_err_t ret = httpd_start(&control_httpd, &config);
+  if (ret == ESP_OK) {
     httpd_register_uri_handler(control_httpd, &uri_root);
     httpd_register_uri_handler(control_httpd, &uri_move);
     httpd_register_uri_handler(control_httpd, &uri_position);
@@ -1036,6 +1034,8 @@ void startControlServer() {
     httpd_register_uri_handler(control_httpd, &uri_stats);
     httpd_register_uri_handler(control_httpd, &uri_config);
     Serial.println("Control server started on port 80 (Core 0)");
+  } else {
+    Serial.printf("Control server FAILED to start: 0x%x\n", ret);
   }
 }
 
@@ -1127,11 +1127,6 @@ void setup() {
 
   Serial.println("Servos, relays, and LED initialized");
 
-  // Configure static IP
-  if (!WiFi.config(local_IP, gateway, subnet, primaryDNS, secondaryDNS)) {
-    Serial.println("Static IP configuration failed");
-  }
-
   WiFi.setHostname(hostname);
   WiFi.setSleep(false);  // Disable WiFi power saving - reduces latency
   Serial.printf("Connecting to WiFi: %s\n", ssid);
@@ -1147,6 +1142,7 @@ void setup() {
   if (WiFi.status() == WL_CONNECTED) {
     Serial.println("\nWiFi connected!");
     Serial.printf("IP address: %s\n", WiFi.localIP().toString().c_str());
+    Serial.printf("MAC address: %s\n", WiFi.macAddress().c_str());
 
     if (MDNS.begin(hostname)) {
       Serial.printf("mDNS: http://%s.local\n", hostname);
@@ -1160,13 +1156,32 @@ void setup() {
     Serial.println("\nWiFi connection failed!");
   }
 
+  Serial.printf("Free heap before servers: %d\n", ESP.getFreeHeap());
+
   // Start control server (non-blocking, runs on Core 0)
   startControlServer();
 
   // Start stream server
   startStreamServer();
 
+  Serial.printf("Free heap after servers: %d\n", ESP.getFreeHeap());
   Serial.println("\nReady!");
+
+  WiFi.onEvent([](WiFiEvent_t event, WiFiEventInfo_t info) {
+    switch (event) {
+      case ARDUINO_EVENT_WIFI_STA_DISCONNECTED:
+        Serial.println("WiFi DISCONNECTED");
+        break;
+      case ARDUINO_EVENT_WIFI_STA_CONNECTED:
+        Serial.println("WiFi CONNECTED");
+        break;
+      case ARDUINO_EVENT_WIFI_STA_GOT_IP:
+        Serial.printf("WiFi GOT IP: %s\n", WiFi.localIP().toString().c_str());
+        break;
+      default:
+        break;
+    }
+  });
 }
 
 // ===========================
@@ -1211,5 +1226,12 @@ void loop() {
   if (positionChanged && !positionsSaved && (currentTime - lastActivityTime >= SAVE_DELAY)) {
     savePositions();
     positionChanged = false;
+  }
+
+  // Heartbeat every 5 seconds
+  static unsigned long lastHeartbeat = 0;
+  if (currentTime - lastHeartbeat >= 5000) {
+    lastHeartbeat = currentTime;
+    Serial.printf("[%lus] heap=%d wifi=%d\n", currentTime / 1000, ESP.getFreeHeap(), WiFi.status());
   }
 }

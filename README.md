@@ -180,12 +180,12 @@ Use either:
   - Orange (Signal) → ESP32 GPIO 13
 
 ### Relay Connections (2 relays for firing mechanism)
-- **Relay 1 (Spinner Motor):**
+- **Relay 1 (Trigger Motor):**
   - VCC → Common 5V Rail
   - GND → Common ground
   - Signal → ESP32 GPIO 14
 
-- **Relay 2 (Trigger):**
+- **Relay 2 (Spinner Motor):**
   - VCC → Common 5V Rail
   - GND → Common ground
   - Signal → ESP32 GPIO 15
