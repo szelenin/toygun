@@ -42,13 +42,18 @@ The turret talks over the Flipper's own Serial service. UUIDs are taken from
 `targets/f7/ble_glue/services/serial_service_uuid.inc` and byte-reversed into
 normal order (the firmware stores 128-bit UUIDs least-significant byte first).
 
-| Role | UUID |
-|---|---|
-| Service | `8fe5b3d5-2e7f-4a98-2a48-7acc60fe0000` |
-| **TX** — Flipper writes, turret subscribes | `19ed82ae-ed21-4c9d-4145-228e61fe0000` |
-| **RX** — turret writes, Flipper reads | `19ed82ae-ed21-4c9d-4145-228e62fe0000` |
-| Flow control | `19ed82ae-ed21-4c9d-4145-228e63fe0000` |
-| RPC status | `19ed82ae-ed21-4c9d-4145-228e64fe0000` |
+| Role | UUID | Properties |
+|---|---|---|
+| Service | `8fe5b3d5-2e7f-4a98-2a48-7acc60fe0000` | — |
+| **TX** — Flipper writes, turret subscribes | `19ed82ae-…-228e61fe0000` | read, **indicate** |
+| **RX** — turret writes, Flipper reads | `19ed82ae-…-228e62fe0000` | read, write, write-no-response |
+| Flow control | `19ed82ae-…-228e63fe0000` | read, notify |
+| RPC status | `19ed82ae-…-228e64fe0000` | read, write, notify |
+
+Every row above was read off the real device, not just the firmware source — the
+full GATT dump is at the end of this file. Negotiated **ATT MTU was 255**, so
+payload size is not a constraint for a protocol whose longest message is about
+twenty bytes.
 
 The turret finds the Flipper **by MAC address** (`FLIPPER_ADDRESS` in the
 sketch). Pairing is bonded: the Flipper shows a six-digit code once, it gets
@@ -221,3 +226,56 @@ Flipper and receive what the app sends, confirming `rpc_active(false)` and
 `ble_profile_serial_tx` work before the turret is involved.
 
 Keep darts out of the magazine until movement is confirmed.
+
+## Appendix: GATT dump from the real device
+
+Read off `Ulb4fy` on 2026-09-05 by the turret itself, immediately after pairing.
+`r`=read `w`=write `wnr`=write-no-response `n`=notify `i`=indicate.
+
+```
+=== GATT DUMP  mtu=255 ===
+SERVICE 0x1801                                   (Generic Attribute)
+  CHAR 0x2a05  r=0 w=0 wnr=0 n=0 i=1
+SERVICE 0x1800                                   (Generic Access)
+  CHAR 0x2a00  r=1 w=0 wnr=0 n=0 i=0             device name
+  CHAR 0x2a01  r=1 w=0 wnr=0 n=0 i=0
+  CHAR 0x2a04  r=1 w=0 wnr=0 n=0 i=0
+SERVICE 0x180a                                   (Device Information)
+  CHAR 0x2a29  r=1 ...                           manufacturer
+  CHAR 0x2a25  r=1 ...                           serial number
+  CHAR 0x2a26  r=1 ...                           firmware revision
+  CHAR 0x2a28  r=1 ...                           software revision
+  CHAR 03f6666d-ae5e-47c8-8e1a-5d873eb5a933  r=1 ...
+SERVICE 0x180f                                   (Battery)
+  CHAR 0x2a19  r=1 w=0 wnr=0 n=1 i=0             battery level
+  CHAR 0x2a1a  r=1 w=0 wnr=0 n=1 i=0
+SERVICE 8fe5b3d5-2e7f-4a98-2a48-7acc60fe0000     (Flipper Serial)
+  CHAR 19ed82ae-ed21-4c9d-4145-228e62fe0000  r=1 w=1 wnr=1 n=0 i=0   RX
+  CHAR 19ed82ae-ed21-4c9d-4145-228e61fe0000  r=1 w=0 wnr=0 n=0 i=1   TX
+  CHAR 19ed82ae-ed21-4c9d-4145-228e63fe0000  r=1 w=0 wnr=0 n=1 i=0   flow control
+  CHAR 19ed82ae-ed21-4c9d-4145-228e64fe0000  r=1 w=1 wnr=0 n=1 i=0   RPC status
+=== END GATT DUMP ===
+```
+
+Note `i=1` on TX and `n=0`: it indicates and never notifies. That single column
+is what the earlier subscribe failure came down to.
+
+There is no HID service in the list, which matches `ble_profile_hid` not being
+exported to apps. The Battery service is standard and unrelated, though the
+turret could read the Flipper's charge level from `0x2a19` if that were ever
+useful.
+
+## What is verified, and what is not
+
+| Claim | Status |
+|---|---|
+| Service and characteristic UUIDs | **Verified on device** — GATT dump above |
+| TX indicates, does not notify | **Verified on device** |
+| RX accepts write and write-no-response | **Verified on device** |
+| Scanning, pairing, bonding, subscribing | **Verified on device**, reconnects in 3.6 s |
+| Turret sends `VER 1 LizardGun3000` on link up | **Verified on device** |
+| Flipper advertises `0x3081`, not the Serial UUID | **Verified** — seen in scan output |
+| A phone-connected Flipper stops advertising | **Verified** — it appeared only once disconnected |
+| Commands, replies, watchdog, angle limits | **Verified over USB serial**, not yet over BLE |
+| `ble_profile_serial_*` exported to apps | From the official `api_symbols.csv`, not run |
+| `rpc_active(false)` required | **Unverified** — no app has pushed bytes yet |
