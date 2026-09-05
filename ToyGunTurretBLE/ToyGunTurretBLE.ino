@@ -91,6 +91,9 @@
 // is named "Flipper <something>"; set this to the full name to pin one device.
 #define FLIPPER_NAME_PREFIX "Flipper"
 
+// 1 = log every advertisement seen while scanning. Useful once, deafening after.
+#define VERBOSE_SCAN 0
+
 // From flipperzero-firmware targets/f7/ble_glue/services/serial_service_uuid.inc.
 // The firmware stores 128-bit UUIDs least-significant byte first; these are the
 // same values byte-reversed into normal UUID order.
@@ -136,6 +139,8 @@ unsigned long lastMoveTime     = 0;
 unsigned long lastCommandTime  = 0;
 unsigned long lastActivityTime = 0;
 unsigned long lastReportTime   = 0;
+int  lastReportedH   = -1;      // suppress repeats of an unchanged position
+int  lastReportedV   = -1;
 bool positionChanged = false;
 bool positionsSaved  = true;
 
@@ -187,6 +192,8 @@ void report(const char *fmt, ...) {
 }
 
 void reportPosition() {
+  lastReportedH = horizontalAngle;
+  lastReportedV = verticalAngle;
   report("POS %d %d", horizontalAngle, verticalAngle);
 }
 
@@ -348,9 +355,11 @@ class ScanCallbacks : public NimBLEScanCallbacks {
                      strncmp(dev->getName().c_str(), FLIPPER_NAME_PREFIX,
                              strlen(FLIPPER_NAME_PREFIX)) == 0;
 
-    Serial.printf("  saw %-20s rssi %d%s\n",
-                  dev->haveName() ? dev->getName().c_str() : "(no name)",
-                  dev->getRSSI(), (byService || byName) ? "  <= FLIPPER" : "");
+    if (VERBOSE_SCAN || byService || byName) {
+      Serial.printf("  saw %-24s rssi %d%s\n",
+                    dev->haveName() ? dev->getName().c_str() : "(no name)",
+                    dev->getRSSI(), (byService || byName) ? "   <= FLIPPER" : "");
+    }
 
     if (byService || byName) {
       NimBLEDevice::getScan()->stop();
@@ -498,7 +507,8 @@ void loop() {
     }
   }
 
-  if (positionChanged && (now - lastReportTime >= NOTIFY_INTERVAL)) {
+  bool moved_since_report = (horizontalAngle != lastReportedH) || (verticalAngle != lastReportedV);
+  if (moved_since_report && (now - lastReportTime >= NOTIFY_INTERVAL)) {
     lastReportTime = now;
     reportPosition();
   }

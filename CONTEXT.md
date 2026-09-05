@@ -68,14 +68,33 @@ in `ToyGunCamWiFi.ino`.
   resolution/quality control saved to flash
 - Everything above runs today on the ESP32-CAM
 
-**Written but never compiled:**
+**Built, flashed and bench-tested on the WROOM (2026-09-05):**
 
-- `ToyGunTurretBLE` — NimBLE **central** firmware for the WROOM. NimBLE-Arduino
-  is not installed yet, so this has not been through a compiler even once.
+- `ToyGunTurretBLE` — NimBLE central firmware. Compiles clean (47% flash, 10%
+  RAM), boots, restores saved angles, scans for BLE peers, and the full command
+  set works over USB serial: handshake, movement at 25 deg/sec, position
+  persistence, and the deadman watchdog cutting movement after 1500 ms of
+  silence. Firing has NOT been exercised — relays untested with the gun.
 
 **In progress:**
 
 - Flipper Zero app, BLE central side
+
+## Building from the terminal
+
+`arduino-cli` is installed and shares the Arduino IDE's folders, so cores and
+libraries installed either way are visible to both.
+
+```bash
+arduino-cli compile --fqbn esp32:esp32:esp32     ToyGunTurretBLE
+arduino-cli compile --fqbn esp32:esp32:esp32cam  ToyGunCamWiFi
+arduino-cli board list
+arduino-cli upload -p /dev/cu.wchusbserial10 --fqbn esp32:esp32:esp32 ToyGunTurretBLE
+arduino-cli monitor -p /dev/cu.wchusbserial10 -c baudrate=115200
+```
+
+The WROOM enumerates as `/dev/cu.wchusbserial10` (CH340). Libraries in use:
+NimBLE-Arduino 2.5.1, ESP32Servo 3.0.9, ESP32 core 3.3.4.
 
 ## Who's doing what
 
@@ -96,9 +115,8 @@ serial, and the app can be checked with any phone BLE terminal.
 
 ## Open items
 
-1. **Build and flash `ToyGunTurretBLE`** — install NimBLE-Arduino 2.x first.
-   It has never been compiled; expect a few errors, particularly around the
-   NimBLE 2.x pairing callbacks.
+1. **Test firing.** The relays have not been switched by this firmware yet.
+   Darts out of the magazine, then `F1` / `F0` over the serial monitor.
 2. **Pair the turret to the Flipper** — the Flipper shows a six-digit code, it
    gets typed into the turret's serial monitor once, then the bond persists.
 3. **Move the 10-pin header** from the CAM to the WROOM, and disconnect it from
