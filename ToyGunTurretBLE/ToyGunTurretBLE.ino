@@ -87,12 +87,26 @@
 #define PROTOCOL_VERSION 1
 #define TURRET_NAME     "LizardGun3000"
 
-// Advertised-name prefix used to spot the Flipper while scanning. Every Flipper
-// is named "Flipper <something>"; set this to the full name to pin one device.
-#define FLIPPER_NAME_PREFIX "Flipper"
+// How to recognise the Flipper while scanning.
+//
+// Matching by address is the reliable way. A Flipper's BLE name is whatever its
+// owner set - ours is "Ulb4fy", with no "Flipper" in it - and its advertisement
+// carries service 0x3081, NOT the Serial service UUID. So neither a name prefix
+// nor a service-UUID match is dependable. Read the address off a scan with
+// VERBOSE_SCAN enabled, then put it here.
+//
+// Set FLIPPER_ADDRESS to "" to match on FLIPPER_NAME instead.
+#define FLIPPER_ADDRESS "80:e1:26:f3:3a:6b"
+#define FLIPPER_NAME    "Ulb4fy"
 
 // 1 = log every advertisement seen while scanning. Useful once, deafening after.
 #define VERBOSE_SCAN 0
+
+// 1 = wipe stored pairings at boot. Needed once after changing the security
+// parameters: a bond negotiated under the old settings makes the peer reject
+// the new ones with HCI 0x05, Authentication Failure. Clear BOTH sides - on the
+// Flipper that is Settings > Bluetooth > Forget All Paired Devices.
+#define CLEAR_BONDS_ON_BOOT 0
 
 // From flipperzero-firmware targets/f7/ble_glue/services/serial_service_uuid.inc.
 // The firmware stores 128-bit UUIDs least-significant byte first; these are the
@@ -325,10 +339,14 @@ class ClientCallbacks : public NimBLEClientCallbacks {
   // The Flipper shows a six-digit code when pairing. Type it into the serial
   // monitor once; the bond is stored in NVS and later connections are silent.
   void onPassKeyEntry(NimBLEConnInfo &connInfo) override {
-    Serial.println("\n*** Flipper is showing a pairing code.");
-    Serial.println("*** Type the 6 digits here and press Enter:");
+    // The Flipper generates a NEW code for every pairing attempt, so this has to
+    // stay open long enough for a human to read the screen and type it. A short
+    // window means you end up injecting the code from the previous attempt,
+    // which fails as HCI 0x05, Authentication Failure.
+    Serial.println("\n*** PAIRING CODE REQUIRED");
+    Serial.println("*** Read the 6 digits on the Flipper screen NOW and type them here:");
     uint32_t pin = 0;
-    unsigned long deadline = millis() + 60000;
+    unsigned long deadline = millis() + 180000;
     String entry;
     while (millis() < deadline) {
       if (Serial.available()) {
@@ -350,18 +368,21 @@ class ClientCallbacks : public NimBLEClientCallbacks {
 
 class ScanCallbacks : public NimBLEScanCallbacks {
   void onResult(const NimBLEAdvertisedDevice *dev) override {
-    bool byService = dev->isAdvertisingService(NimBLEUUID(FLIPPER_SERIAL_SERVICE));
-    bool byName    = dev->haveName() &&
-                     strncmp(dev->getName().c_str(), FLIPPER_NAME_PREFIX,
-                             strlen(FLIPPER_NAME_PREFIX)) == 0;
+    const char *wantAddr = FLIPPER_ADDRESS;
+    bool byAddr = wantAddr[0] &&
+                  strcasecmp(dev->getAddress().toString().c_str(), wantAddr) == 0;
+    bool byName = !wantAddr[0] && dev->haveName() &&
+                  strcmp(dev->getName().c_str(), FLIPPER_NAME) == 0;
+    bool match  = byAddr || byName;
 
-    if (VERBOSE_SCAN || byService || byName) {
-      Serial.printf("  saw %-24s rssi %d%s\n",
+    if (VERBOSE_SCAN || match) {
+      Serial.printf("  %-18s %-24s rssi %d%s\n",
+                    dev->getAddress().toString().c_str(),
                     dev->haveName() ? dev->getName().c_str() : "(no name)",
-                    dev->getRSSI(), (byService || byName) ? "   <= FLIPPER" : "");
+                    dev->getRSSI(), match ? "   <= FLIPPER" : "");
     }
 
-    if (byService || byName) {
+    if (match) {
       NimBLEDevice::getScan()->stop();
       foundFlipper  = dev;
       shouldConnect = true;               // connect from loop(), not from here
@@ -402,7 +423,17 @@ bool connectToFlipper() {
     return false;
   }
 
-  if (!txChar->canNotify() || !txChar->subscribe(true, onNotify)) {
+  Serial.printf("TX props: read=%d notify=%d indicate=%d | RX props: write=%d wnr=%d\n",
+                txChar->canRead(), txChar->canNotify(), txChar->canIndicate(),
+                rxChar->canWrite(), rxChar->canWriteNoResponse());
+
+  // The Flipper's TX characteristic is CHAR_PROP_READ | CHAR_PROP_INDICATE - it
+  // INDICATES, it does not notify. NimBLE's subscribe() takes "notifications"
+  // as its first argument, so indications need false, not true.
+  bool ok = false;
+  if (txChar->canNotify())        ok = txChar->subscribe(true,  onNotify);
+  else if (txChar->canIndicate()) ok = txChar->subscribe(false, onNotify);
+  if (!ok) {
     Serial.println("Could not subscribe to the Flipper TX characteristic");
     client->disconnect();
     return false;
@@ -440,10 +471,20 @@ void setup() {
   ledcWrite(LED_PIN, 0);
 
   NimBLEDevice::init(TURRET_NAME);
-  // Bond so the pairing code is only needed once. No MITM is tried first;
-  // if the Flipper insists on a passkey, onPassKeyEntry above handles it.
-  NimBLEDevice::setSecurityAuth(true, false, true);
+  // Bond, no MITM flag, secure connections.
+  //
+  // Requesting MITM looks right on paper - every characteristic on the Flipper's
+  // serial service is ATTR_PERMISSION_AUTHEN_* - but in practice the WB55 then
+  // rejects the pairing with HCI 0x05, Authentication Failure. Without the flag
+  // the Flipper still prompts for its passkey, the pairing completes, and the
+  // characteristics are readable. Tested both ways; this is the one that works.
+  NimBLEDevice::setSecurityAuth(true, false, true);  // bond, no MITM, secure connections
   NimBLEDevice::setSecurityIOCap(BLE_HS_IO_KEYBOARD_ONLY);
+
+#if CLEAR_BONDS_ON_BOOT
+  NimBLEDevice::deleteAllBonds();
+  Serial.println("Stored bonds cleared - expect a fresh pairing code");
+#endif
 
   NimBLEScan *scan = NimBLEDevice::getScan();
   scan->setScanCallbacks(new ScanCallbacks(), false);

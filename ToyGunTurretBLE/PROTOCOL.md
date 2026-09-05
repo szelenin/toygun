@@ -50,10 +50,46 @@ normal order (the firmware stores 128-bit UUIDs least-significant byte first).
 | Flow control | `19ed82ae-ed21-4c9d-4145-228e63fe0000` |
 | RPC status | `19ed82ae-ed21-4c9d-4145-228e64fe0000` |
 
-The turret finds the Flipper by advertised service UUID, falling back to a name
-starting with `Flipper`. Pairing is bonded: the Flipper shows a six-digit code
-once, it gets typed into the turret's serial monitor, and the bond is then
-stored in NVS so later connections are silent.
+The turret finds the Flipper **by MAC address** (`FLIPPER_ADDRESS` in the
+sketch). Pairing is bonded: the Flipper shows a six-digit code once, it gets
+typed into the turret's serial monitor, and the bond is stored in NVS so every
+later connection is silent.
+
+### Verified working, 2026-09-05
+
+```
+80:e1:26:f3:3a:6b  Ulb4fy   rssi -54   <= FLIPPER
+Connecting to 80:e1:26:f3:3a:6b...
+Pairing OK, link encrypted
+TX props: read=1 notify=0 indicate=1 | RX props: write=1 wnr=1
+Link up. Waiting for commands.
+-> VER 1 LizardGun3000
+```
+
+### Four things that will waste your afternoon
+
+1. **A Flipper connected to a phone does not advertise at all.** If the turret
+   cannot see it, close the Flipper mobile app first. This looks exactly like
+   "Bluetooth is off".
+2. **Do not match on name or service UUID.** A Flipper's BLE name is whatever
+   its owner set - ours is `Ulb4fy`, with no "Flipper" in it - and the
+   advertisement carries service `0x3081`, *not* the Serial service UUID. Match
+   the address. Run once with `VERBOSE_SCAN 1` to read it off.
+3. **TX indicates, it does not notify.** `serial_service.c` declares it
+   `CHAR_PROP_READ | CHAR_PROP_INDICATE`. NimBLE's `subscribe()` takes
+   *notifications* as its first argument, so indications need `subscribe(false,
+   cb)`. Subscribing with `true` fails silently-ish and looks like a pairing
+   problem.
+4. **Do not request MITM.** Every characteristic is `ATTR_PERMISSION_AUTHEN_*`,
+   so `setSecurityAuth(bond, mitm=true, sc)` looks correct - but the WB55 then
+   rejects the pairing with HCI `0x05`, Authentication Failure (NimBLE reason
+   517). With `mitm=false` the Flipper still prompts for its passkey, pairing
+   completes, and the characteristics are readable.
+
+After changing any security parameter, clear the bond on **both** sides or the
+peer rejects the new settings with that same 517: set `CLEAR_BONDS_ON_BOOT 1`
+in the sketch, and on the Flipper use Settings > Bluetooth > Forget All Paired
+Devices.
 
 ## Flipper app requirements
 
@@ -70,6 +106,12 @@ ble_profile_serial_tx(profile, (uint8_t*)"R1", 2)
 ⚠️ **`ble_profile_serial_set_rpc_active(profile, false)` is not optional.**
 Leave RPC active and the RPC layer consumes the bytes before they reach the
 wire — the link looks connected and nothing happens.
+
+**This is the one link in the chain still untested.** Everything up to and
+including subscribing to TX is proven working on hardware; what has never been
+exercised is an app actually pushing bytes down the pipe. When you first try it,
+the turret prints every inbound chunk as `<- ...` on its serial console, so you
+can see immediately whether the bytes are arriving.
 
 Note `ble_profile_hid` and every `ble_profile_hid_*` function are marked `-` in
 the symbol table: not exported, not usable from an app. The serial profile is

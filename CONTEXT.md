@@ -76,9 +76,13 @@ in `ToyGunCamWiFi.ino`.
   persistence, and the deadman watchdog cutting movement after 1500 ms of
   silence. Firing has NOT been exercised — relays untested with the gun.
 
+**Proven on hardware (2026-09-05):** the turret finds the Flipper by MAC, pairs
+with a passkey, bonds, and subscribes to the Serial service. Reconnects silently
+after that. See PROTOCOL.md for the four gotchas that cost an afternoon.
+
 **In progress:**
 
-- Flipper Zero app, BLE central side
+- Flipper Zero app, the peripheral side
 
 ## Building from the terminal
 
@@ -117,8 +121,8 @@ serial, and the app can be checked with any phone BLE terminal.
 
 1. **Test firing.** The relays have not been switched by this firmware yet.
    Darts out of the magazine, then `F1` / `F0` over the serial monitor.
-2. **Pair the turret to the Flipper** — the Flipper shows a six-digit code, it
-   gets typed into the turret's serial monitor once, then the bond persists.
+2. **Flipper app** — the only untested link. The turret connects, pairs and
+   subscribes; nothing has yet pushed bytes down the pipe.
 3. **Move the 10-pin header** from the CAM to the WROOM, and disconnect it from
    the CAM completely.
 4. **Set camera resolution to VGA.** It is currently on SXGA, which caps the
