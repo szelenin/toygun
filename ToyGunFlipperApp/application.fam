@@ -1,0 +1,10 @@
+App(
+    appid="toygun_remote",
+    name="Toy Gun Remote",
+    apptype=FlipperAppType.EXTERNAL,
+    entry_point="toygun_remote_app",
+    stack_size=2 * 1024,
+    fap_category="GPIO",
+    fap_author="Szelenin & son",
+    fap_description="Drive the toy gun turret over BLE",
+)

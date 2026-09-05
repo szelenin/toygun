@@ -104,7 +104,7 @@ NimBLE-Arduino 2.5.1, ESP32Servo 3.0.9, ESP32 core 3.3.4.
 
 | Side | Owner |
 |---|---|
-| Flipper Zero app | son |
+| Flipper Zero app (`ToyGunFlipperApp/`) | son, 12 |
 | WROOM firmware, wiring, servos, trigger | dad |
 
 The interface between them is frozen in
@@ -121,8 +121,9 @@ serial, and the app can be checked with any phone BLE terminal.
 
 1. **Test firing.** The relays have not been switched by this firmware yet.
    Darts out of the magazine, then `F1` / `F0` over the serial monitor.
-2. **Flipper app** — the only untested link. The turret connects, pairs and
-   subscribes; nothing has yet pushed bytes down the pipe.
+2. **Run the Flipper app on the Flipper.** `ToyGunFlipperApp/` compiles against
+   SDK 1.4.3 but has never been run, so the one untested link is still an app
+   actually pushing bytes down the pipe.
 3. **Move the 10-pin header** from the CAM to the WROOM, and disconnect it from
    the CAM completely.
 4. **Set camera resolution to VGA.** It is currently on SXGA, which caps the

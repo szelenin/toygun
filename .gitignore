@@ -6,3 +6,8 @@
 *.elf
 *.bin
 *.map
+
+# Flipper app build output (ufbt)
+ToyGunFlipperApp/dist/
+ToyGunFlipperApp/.vscode/
+*.fap
