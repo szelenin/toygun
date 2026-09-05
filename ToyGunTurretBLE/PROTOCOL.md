@@ -9,35 +9,87 @@ code against this document. If it needs to change, bump `PROTOCOL_VERSION` in
 | Flipper Zero app (BLE central) | son |
 | ESP32-WROOM-32E firmware (BLE peripheral) | dad |
 
+## Roles — read this first
+
+The Flipper **cannot** be a BLE central. Checked against the official
+`targets/f7/api_symbols.csv`: there is no exported symbol for scanning,
+connecting outward, or GATT client operations. It can only advertise and be
+connected to.
+
+So the roles are inverted from what you might expect:
+
+| | Role |
+|---|---|
+| **Flipper** | peripheral + GATT server, running its built-in **Serial** profile |
+| **Turret (WROOM)** | **central** + GATT client — it scans, connects and subscribes |
+
+```
+   FLIPPER ZERO                                WROOM ON THE GUN
+   peripheral                                  central
+
+   advertising  ← ← ← ← ← ← ← ← ← ← ← ← ← ←   1. scanning
+                ← ← ← ← ← ← ← ← ← ← ← ← ← ←   2. connects, pairs
+   TX char      → → →  commands  → → → → → →   3. subscribed
+   RX char      ← ← ←  telemetry ← ← ← ← ← ←
+```
+
+The turret does the reaching out. The Flipper just needs Bluetooth on and the
+app running.
+
 ## Connection
 
-| | |
+The turret talks over the Flipper's own Serial service. UUIDs are taken from
+`targets/f7/ble_glue/services/serial_service_uuid.inc` and byte-reversed into
+normal order (the firmware stores 128-bit UUIDs least-significant byte first).
+
+| Role | UUID |
 |---|---|
-| Advertised name | `LizardGun3000` |
-| Service UUID | `6e400001-b5a3-f393-e0a9-e50e24dcca9e` |
-| RX — central writes here | `6e400002-b5a3-f393-e0a9-e50e24dcca9e` |
-| TX — central subscribes here | `6e400003-b5a3-f393-e0a9-e50e24dcca9e` |
-| MTU | 64 |
-| Pairing | none — open connection |
+| Service | `8fe5b3d5-2e7f-4a98-2a48-7acc60fe0000` |
+| **TX** — Flipper writes, turret subscribes | `19ed82ae-ed21-4c9d-4145-228e61fe0000` |
+| **RX** — turret writes, Flipper reads | `19ed82ae-ed21-4c9d-4145-228e62fe0000` |
+| Flow control | `19ed82ae-ed21-4c9d-4145-228e63fe0000` |
+| RPC status | `19ed82ae-ed21-4c9d-4145-228e64fe0000` |
 
-This is the Nordic UART service, so nRF Connect and LightBlue can drive the
-turret directly. Use that to test either side in isolation.
+The turret finds the Flipper by advertised service UUID, falling back to a name
+starting with `Flipper`. Pairing is bonded: the Flipper shows a six-digit code
+once, it gets typed into the turret's serial monitor, and the bond is then
+stored in NVS so later connections are silent.
 
-The turret requests a 7.5–15 ms connection interval on connect. Prefer
-**write-without-response** on RX; nothing in this protocol needs an ack.
+## Flipper app requirements
+
+These are the API calls on your side. All are exported to apps (`+` in
+`api_symbols.csv`):
+
+```c
+furi_hal_bt_start_app(ble_profile_serial, ...)   // or furi_hal_bt_change_app
+ble_profile_serial_set_rpc_active(profile, false)
+ble_profile_serial_set_event_callback(profile, buf_size, callback, ctx)
+ble_profile_serial_tx(profile, (uint8_t*)"R1", 2)
+```
+
+⚠️ **`ble_profile_serial_set_rpc_active(profile, false)` is not optional.**
+Leave RPC active and the RPC layer consumes the bytes before they reach the
+wire — the link looks connected and nothing happens.
+
+Note `ble_profile_hid` and every `ble_profile_hid_*` function are marked `-` in
+the symbol table: not exported, not usable from an app. The serial profile is
+the one available byte pipe, which is why the protocol is ASCII over it.
 
 ## Handshake
 
-On connect, the app **must**:
+The turret sends `VER 1 LizardGun3000` unprompted as soon as the link comes up,
+and also whenever it receives `V`.
 
-1. Subscribe to notifications on TX.
-2. Write `V`.
-3. Expect `VER 1 LizardGun3000` back.
+The app should:
+
+1. Wait for that `VER` line, or send `V` and wait for the reply.
+2. Refuse to send movement or fire commands until it has seen a version it
+   knows.
 
 If the version is not one the app knows, disconnect and say so. Do not send
 movement or fire commands to an unknown protocol version.
 
-## Commands — written to RX, ASCII
+## Commands — Flipper app sends these, ASCII
 
 | Command | Effect |
 |---|---|
@@ -55,7 +107,7 @@ movement or fire commands to an unknown protocol version.
 Several commands may share one write, separated by spaces or newlines:
 `R1 F1` is legal. Unknown commands return `ERR <char>` and change nothing.
 
-## Notifications — from TX, ASCII
+## Replies — the turret sends these back, ASCII
 
 | Message | Meaning |
 |---|---|
@@ -91,21 +143,39 @@ app's main loop, not into the button handler.
 turns the trigger relay on. So `F1` takes about a quarter second to return, and
 no other command is processed during it. `F0` cuts both relays immediately.
 
-## Open question
+## Resolved: how the Flipper connects
 
-The Flipper must act as a BLE **central** for any of this to work. Official
-firmware is built around being a peripheral, and GATT-client support has lived
-in third-party branches. **Confirm the firmware branch can scan, connect and
-write a characteristic before building on this document.** If it cannot, the
-fallback is infrared: a TSOP38238 on the WROOM and saved NEC codes in the
-Flipper's stock Infrared app, which needs no custom Flipper app at all.
+This was an open question and is now settled. Official firmware exports no BLE
+central capability, so the earlier plan — turret as peripheral, Flipper as
+central — was impossible. Inverting the roles and using the Flipper's own Serial
+profile works on **stock firmware**, with no custom or experimental firmware and
+no extra hardware.
+
+Rejected alternatives, for the record:
+
+- **Moon Firmware** — a hard fork that swaps in the BLE Full radio stack and does
+  give the Flipper central mode. Rejected: experimental, and it reflashes the
+  radio coprocessor.
+- **Sub-GHz + CC1101** — works, but arbitrary packet TX from an app runs into
+  documented preamble and FIFO trouble, and needs matching radio configs on both
+  sides.
+- **Infrared** — simplest of all, still the fallback if BLE pairing turns out to
+  be painful. Line of sight only, and weak in direct sunlight.
 
 ## Testing without the other half
 
-**Flipper app, no turret:** run any Nordic UART peripheral emulator on a phone,
-or flash this sketch to a spare ESP32 with no servos attached — commands still
-notify correctly with nothing wired.
+**Turret, no Flipper app:** the firmware reads the same commands from the USB
+serial monitor. Open it at 115200, type `V`, expect `VER 1 LizardGun3000`. Then
+`R1`, wait, `R0`. This exercises every line of the servo, relay, watchdog and
+parser code with no BLE involved at all.
 
-**Turret, no Flipper app:** nRF Connect. Connect, enable notifications on
-`...0003`, write `V` to `...0002` as text, expect `VER 1 LizardGun3000`. Then
-`R1`, wait, `R0`. Keep darts out of the magazine until movement is confirmed.
+**Turret, no Flipper app, over BLE:** with Bluetooth on but no app running, the
+turret should still find the Flipper, pair, and discover the Serial service. It
+will report `No Flipper Serial service` or sit with the link up and no traffic —
+either way, discovery and pairing are proven.
+
+**Flipper app, no turret:** any BLE terminal on a phone can connect to the
+Flipper and receive what the app sends, confirming `rpc_active(false)` and
+`ble_profile_serial_tx` work before the turret is involved.
+
+Keep darts out of the magazine until movement is confirmed.

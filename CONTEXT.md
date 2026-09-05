@@ -70,9 +70,8 @@ in `ToyGunCamWiFi.ino`.
 
 **Written but never compiled:**
 
-- `ToyGunTurretBLE` — NimBLE peripheral firmware for the WROOM. NimBLE-Arduino
+- `ToyGunTurretBLE` — NimBLE **central** firmware for the WROOM. NimBLE-Arduino
   is not installed yet, so this has not been through a compiler even once.
-  Expect a few errors on first build.
 
 **In progress:**
 
@@ -87,17 +86,21 @@ in `ToyGunCamWiFi.ino`.
 
 The interface between them is frozen in
 [PROTOCOL.md](ToyGunTurretBLE/PROTOCOL.md) — v1, with a `V` handshake command so
-a version mismatch fails cleanly instead of behaving oddly. Either side can be
-tested alone against nRF Connect.
+a version mismatch fails cleanly instead of behaving oddly.
+
+**The Flipper cannot be a BLE central** — official firmware exports no scanning
+or GATT client API. So the turret is the central and connects to the Flipper's
+built-in Serial profile, which works on stock firmware with no extra hardware.
+Either side can be tested alone: the turret accepts the same commands over USB
+serial, and the app can be checked with any phone BLE terminal.
 
 ## Open items
 
-1. **Confirm the Flipper can act as a BLE central.** Official firmware is built
-   around being a peripheral; GATT-client support has lived in third-party
-   branches. Everything on the BLE path depends on this. Fallback if it can't:
-   infrared — a TSOP38238 on the WROOM and saved NEC codes in the Flipper's
-   stock Infrared app, which needs no custom Flipper app at all.
-2. **Build and flash `ToyGunTurretBLE`** — install NimBLE-Arduino 2.x first.
+1. **Build and flash `ToyGunTurretBLE`** — install NimBLE-Arduino 2.x first.
+   It has never been compiled; expect a few errors, particularly around the
+   NimBLE 2.x pairing callbacks.
+2. **Pair the turret to the Flipper** — the Flipper shows a six-digit code, it
+   gets typed into the turret's serial monitor once, then the bond persists.
 3. **Move the 10-pin header** from the CAM to the WROOM, and disconnect it from
    the CAM completely.
 4. **Set camera resolution to VGA.** It is currently on SXGA, which caps the

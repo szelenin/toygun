@@ -30,43 +30,21 @@ The two boards share the 5V rail and a common ground, and nothing else.
 NimBLE-Arduino 1.x will not compile this — the callback signatures changed in
 2.0 (`onConnect`/`onDisconnect` gained a `NimBLEConnInfo&`, `onWrite` too).
 
-## GATT interface
+## How it connects
 
-Advertised as **`LizardGun3000`**, exposing the Nordic UART service:
+The Flipper cannot act as a BLE central — official firmware exports no scanning
+or GATT client API at all. So the roles are inverted from the obvious ones:
 
-| Role | UUID |
-|---|---|
-| Service | `6e400001-b5a3-f393-e0a9-e50e24dcca9e` |
-| RX — write / write-no-response | `6e400002-b5a3-f393-e0a9-e50e24dcca9e` |
-| TX — notify | `6e400003-b5a3-f393-e0a9-e50e24dcca9e` |
+- **Flipper** = peripheral, running its built-in Serial profile
+- **Turret** = central. It scans, finds the Flipper, connects, pairs, and
+  subscribes to the Flipper's TX characteristic.
 
-Nordic UART rather than a custom UUID so any generic client already speaks it.
+Commands arrive as ASCII on that characteristic; telemetry is written back to
+the Flipper's RX characteristic. Full UUIDs, the app-side API calls, and the
+command set are in [PROTOCOL.md](PROTOCOL.md).
 
-### Commands (ASCII, written to RX)
-
-| Command | Effect |
-|---|---|
-| `U1` / `U0` | Tilt up — press / release |
-| `D1` / `D0` | Tilt down |
-| `L1` / `L0` | Pan left |
-| `R1` / `R0` | Pan right |
-| `F1` / `F0` | Fire — spinner, 250 ms spin-up, then trigger / stop both |
-| `C` | Center servos and clear the saved position |
-| `P` | Request a position notification |
-| `B<0-255>` | Brightness on the spare GPIO 4 PWM output, e.g. `B64` |
-| `K` | Keepalive — refreshes the watchdog, changes nothing |
-
-Several commands may share one write, separated by spaces or newlines.
-
-### Notifications (from TX)
-
-```
-POS <h> <v>      position, during movement and on demand
-FIRE <0|1>
-LED <0-255>
-ERR <char>       unrecognized command
-OK watchdog      the deadman timer just cut the outputs
-```
+Pairing is bonded and happens once: the Flipper shows a six-digit code, you type
+it into the turret's serial monitor, and the bond is stored in NVS.
 
 ## Deadman watchdog
 
@@ -80,40 +58,51 @@ A client holding a button must resend that command — or `K` — about every
 
 ## Testing without a Flipper
 
-Do this first; it separates turret bugs from Flipper bugs.
+Do this first; it separates turret bugs from Flipper bugs. The firmware accepts
+the same commands over USB serial.
 
-1. Install **nRF Connect** (or LightBlue) on a phone.
-2. Scan, connect to `LizardGun3000`.
-3. Enable notifications on the TX characteristic (`...0003`).
-4. Write `P` to RX (`...0002`) as text — you should get `POS 90 90` back.
-5. Write `R1`, wait, write `R0`. The turret should pan right and stop.
+1. Open the Serial Monitor at **115200**, line ending Newline.
+2. Type `V` — expect `VER 1 LizardGun3000`.
+3. Type `P` — expect `POS 90 90`.
+4. Type `R1`, wait a second, type `R0`. The turret pans right and stops.
+5. Type `R1` and then nothing. After 1.5 s you should see the watchdog fire.
 
+That covers the servos, relays, parser and watchdog with no BLE involved.
 Keep darts out of the magazine until movement is confirmed.
 
-## Flipper Zero
+## Flipper Zero app
 
-The turret is a **BLE peripheral**, so the Flipper has to act as **central** —
-scan, connect, discover the Nordic UART service, and write to the RX
-characteristic. That is the open question in this design: the Flipper's
-official firmware is built around being a *peripheral* (BLE Remote / HID,
-Flipper Serial), and GATT-client support has historically lived in third-party
-firmware. Confirm your firmware branch can act as a central before writing an
-app against this.
+Your son's side. It runs on **stock firmware** — no custom or experimental
+firmware needed — using the Flipper's built-in Serial profile as a byte pipe:
 
-**The Video Game Module cannot be used for this.** The VGM is built on a
-Raspberry Pi RP2040, which has no radio at all — no BLE, no WiFi. It is a DVI
-video output plus an ICM-42688-P 6-axis IMU, and it talks to the Flipper over
-the GPIO header. Its own 14-pin breakout only helps if you are willing to run a
-wire to the turret.
+```c
+furi_hal_bt_start_app(ble_profile_serial, ...)
+ble_profile_serial_set_rpc_active(profile, false)   // required, see PROTOCOL.md
+ble_profile_serial_set_event_callback(profile, buf_size, callback, ctx)
+ble_profile_serial_tx(profile, (uint8_t*)"R1", 2)
+```
 
-The Flipper accessory with WiFi is the separate **WiFi Devboard** (ESP32-S2).
-With FlipperHTTP flashed to that, a Flipper app can drive the existing HTTP
-endpoints in `ToyGunCamWiFi.ino` (`/move`, `/shoot`, `/led`, `/position`) with
-no changes to that firmware and no BLE involved.
+All four are exported to apps in the official `api_symbols.csv`. The HID profile
+is not (`ble_profile_hid` is marked `-`), which is why this uses the serial
+profile rather than pretending to be a keyboard.
+
+**The Video Game Module cannot help here.** It is built on a Raspberry Pi
+RP2040, which has no radio at all — no BLE, no WiFi. It is a DVI video output
+plus an ICM-42688-P 6-axis IMU, connected over the GPIO header.
+
+## Fallback if BLE pairing proves painful
+
+Infrared. A TSOP38238 on the WROOM is one GPIO plus power, and the Flipper's
+stock Infrared app can send NEC codes with no custom app at all — then a proper
+FAP with a D-pad once it works. Line of sight only, and weak in direct sunlight,
+but it is the cheapest thing that can possibly work.
 
 ## Security
 
-The link is open — no pairing, no passkey. Anyone in BLE range who knows the
-protocol can drive the turret. Fine on a workbench; worth adding
-`NimBLEDevice::setSecurityAuth()` and a static passkey before leaving it
-powered up unattended.
+The Flipper link is bonded and encrypted once paired. The pairing code is
+entered once over USB serial; after that the bond lives in NVS.
+
+Note that the turret connects to the **first** device it sees advertising the
+Flipper Serial service or a name starting with `Flipper`. On a workbench with
+several Flippers around, pin it to one by setting `FLIPPER_NAME_PREFIX` to the
+full device name.
