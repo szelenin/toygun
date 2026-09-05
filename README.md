@@ -109,62 +109,32 @@ Battery Option (Portable):
 
 **Important:** All grounds must be connected to a common ground!
 
-## Software Setup
+## Firmware
 
-### WiFi Configuration
+The turret runs two boards, each with its own sketch. They share the 5V rail and
+a common ground — never a signal line.
 
-Before uploading code to the ESP32, you need to configure WiFi settings in the Arduino sketch:
+| Sketch | Board | Job |
+|--------|-------|-----|
+| [`ToyGunCamWiFi/`](ToyGunCamWiFi/) | ESP32-CAM | Camera stream, web UI, admin panel. Also drives servos and relays when wired to them directly. |
+| [`ToyGunTurretBLE/`](ToyGunTurretBLE/) | ESP32-WROOM-32E | Servos and firing relays over Bluetooth LE, for control from a Flipper Zero or any BLE client. See [its README](ToyGunTurretBLE/README.md). |
 
-**1. WiFi Credentials** (Lines 30-32 in ToyGunControl.ino):
-```cpp
-const char* ssid = "YOUR_WIFI_SSID";           // Change to your WiFi name
-const char* password = "YOUR_WIFI_PASSWORD";   // Change to your WiFi password
-const char* hostname = "toygun";               // Access via http://toygun.local
-```
+`ToyGunTurretBLE` is optional. Wire the 10-pin header to the ESP32-CAM and
+`ToyGunCamWiFi` alone is a complete turret; move that header to the WROOM and
+the CAM becomes the camera while the WROOM takes over motion and firing.
 
-**2. Network Settings** (Lines 39-43):
+⚠️ The header goes to one board or the other, never both. Two push-pull outputs
+on the same servo signal line will damage GPIO pins.
 
-To find these values on your network:
+Everything below applies to both boards. Anything specific to one of them —
+WiFi credentials, camera settings, flashing, the BLE protocol — lives in that
+board's own README:
 
-**On Mac:**
-- Go to **System Settings → Network → WiFi → Details**
-- Note: **Router** (gateway), **Subnet Mask**, and **DNS Server**
-
-**On iPhone:**
-- Go to **Settings → WiFi**
-- Tap **(i)** button next to your WiFi network
-- Note: **Router**, **Subnet Mask**, and **DNS**
-
-**On Windows:**
-- Open **Command Prompt**
-- Run: `ipconfig /all`
-- Note: **Default Gateway**, **Subnet Mask**, and **DNS Servers**
-
-**Configure in code:**
-```cpp
-IPAddress local_IP(192, 168, 86, 42);      // Choose any IP ending in 2-254
-IPAddress gateway(192, 168, 86, 1);        // Your router IP (from above)
-IPAddress subnet(255, 255, 255, 0);        // Subnet mask (from above)
-IPAddress primaryDNS(192, 168, 86, 1);     // DNS server (usually same as gateway)
-IPAddress secondaryDNS(8, 8, 8, 8);        // Google DNS as backup
-```
-
-**3. Accessing the Turret:**
-
-After uploading, the Serial Monitor will show:
-```
-✓ WiFi connected!
-IP address: 192.168.86.42
-mDNS responder started: http://toygun.local
-
-Access the turret at:
-  http://192.168.86.42
-  http://toygun.local
-```
-
-Use either:
-- **Static IP:** http://192.168.86.42
-- **mDNS hostname:** http://toygun.local (works on most devices)
+- **[ToyGunCamWiFi/README.md](ToyGunCamWiFi/README.md)** — WiFi setup, camera
+  tuning, FTDI wiring, flashing the ESP32-CAM
+- **[ToyGunTurretBLE/README.md](ToyGunTurretBLE/README.md)** — BLE build and
+  wiring, plus **[PROTOCOL.md](ToyGunTurretBLE/PROTOCOL.md)**, the contract
+  between the turret firmware and the Flipper app
 
 ## Wiring Connections
 
@@ -230,163 +200,6 @@ Pin 1                                      Pin 10
 - **Pins 1-3:** Horizontal Servo (Signal, Power, Ground)
 - **Pins 4-6:** Vertical Servo (Signal, Power, Ground)
 - **Pins 7-10:** Relay Module (GND, IN2, IN1, VCC)
-
-## ESP32-CAM Wiring Diagram
-
-### Programming with FT232RL FTDI Adapter
-
-Use the FT232RL FTDI USB-C to TTL adapter to program the ESP32-CAM.
-
-**Components:**
-- FT232RL FTDI USB-C to TTL Adapter: [Amazon B0CQVB6JFV](https://www.amazon.com/dp/B0CQVB6JFV)
-- 1N5819 Schottky Diode (for power protection)
-
-### Pin Mapping (ESP32-CAM)
-
-| Function | GPIO | ESP32-CAM Pin Label |
-|----------|------|---------------------|
-| Horizontal Servo | 12 | IO12 |
-| Vertical Servo | 13 | IO13 |
-| Trigger Relay | 14 | IO14 |
-| Spinner Relay | 15 | IO15 |
-| 5V Power In | - | 5V |
-| Ground | - | GND |
-
-### Programming Wiring (FT232RL to ESP32-CAM)
-
-```
-FT232RL FTDI Adapter              ESP32-CAM
-(set jumper to 3.3V!)
-──────────────────                ─────────
-    GND ─────────────────────────→ GND
-    TX  ─────────────────────────→ U0R (GPIO 3)
-    RX  ─────────────────────────→ U0T (GPIO 1)
-    VCC ─────────────────────────→ 5V (common 5V rail, after diode)
-
-                                           ┌────○────┐
-                                  IO0 ─────┤  SWITCH ├───→ GND
-                                           └─────────┘
-
-DROK Mini (5.3V) ──►|── 1N5819 ──→ 5V (common 5V rail)
-```
-
-**Switch operation:**
-- **Switch CLOSED** = Programming mode (IO0 grounded)
-- **Switch OPEN** = Normal run mode (IO0 floating)
-
-**Important:**
-- Set FTDI voltage jumper to **3.3V** (ESP32 uses 3.3V logic)
-- FTDI VCC connects to the common 5V rail (after the diode)
-- The diode allows safe power from either source (DROK OR FTDI)
-- Close switch before powering on to enter programming mode
-- Open switch after programming and reset to run normally
-
-### Complete Wiring Diagram (Normal Operation)
-
-```
-                         12V Power Supply
-                               │
-               ┌───────────────┴───────────────┐
-               │                               │
-        ┌──────┴──────┐                 ┌──────┴──────┐
-        │ DROK Mini   │                 │ DROK Mini   │
-        │  @ 6V       │                 │  @ 5.3V     │
-        │  (Servos)   │                 │  (ESP32)    │
-        └──────┬──────┘                 └──────┬──────┘
-               │                               │
-            6V │ GND                    5.3V+  │ GND
-               │  │                        │   │
-               │  │                   1N5819   │
-               │  │                     ►|     │
-               │  │                        │   │
-               │  │              ┌─────────┴───┼──── COMMON 5V RAIL
-               │  │              │             │
-               │  │         FTDI VCC          │
-               │  │              │             │
-               │  └──────────────┼─────────────┴──── COMMON GND
-               │                 │                        │
-    ┌──────────┴──────────┐    ┌─┴────────────────────────┴───────────┐
-    │       SERVOS        │    │              ESP32-CAM               │
-    │                     │    │                                      │
-    │  ┌────────────────┐ │    │  5V ←── Common 5V Rail               │
-    │  │ Horizontal     │ │    │  GND ←── Common GND                  │
-    │  │ VCC ← 6V DROK  │ │    │                                      │
-    │  │ GND ← Common   │ │    │  IO12 ──→ Horizontal Servo Signal    │
-    │  │ SIG ───────────────────→ IO12                                │
-    │  └────────────────┘ │    │  IO13 ──→ Vertical Servo Signal      │
-    │                     │    │  IO14 ──→ Relay IN1 (Trigger)        │
-    │  ┌────────────────┐ │    │  IO15 ──→ Relay IN2 (Spinner)        │
-    │  │ Vertical       │ │    │                                      │
-    │  │ VCC ← 6V DROK  │ │    │  For programming:                    │
-    │  │ GND ← Common   │ │    │  U0R ←── FTDI TX                     │
-    │  │ SIG ───────────────────→ IO13                                │
-    │  └────────────────┘ │    │  U0T ──→ FTDI RX                     │
-    │                     │    │  IO0 ──┤○ SWITCH ○├── GND            │
-    └─────────────────────┘    └──────────────────────────────────────┘
-
-    ┌─────────────────────┐
-    │    2-CH RELAY       │
-    │                     │
-    │  VCC ←── Common 5V  │
-    │  GND ←── Common GND │
-    │  IN1 ←── IO14       │
-    │  IN2 ←── IO15       │
-    └─────────────────────┘
-```
-
-### Power Protection with Diode
-
-The 1N5819 Schottky diode allows safe dual power sources (DROK converter AND FTDI):
-
-```
-DROK 5.3V ───►|─────┬─────────→ ESP32-CAM 5V
-            1N5819  │
-                    ├─────────→ Relay VCC
-                    │
-FTDI VCC ───────────┘
-                 (Common 5V Rail)
-```
-
-**How it works:**
-- **DROK ON:** 5.3V through diode = 5.0V powers everything, diode blocks backflow
-- **DROK OFF:** FTDI 5V powers ESP32 for bench programming, diode blocks backflow to DROK
-
-**Setup:**
-1. Adjust DROK potentiometer to output **5.3V** (compensates for 0.3V diode drop)
-2. Connect diode: anode (no stripe) to DROK OUT+, cathode (stripe) to 5V rail
-3. Connect FTDI VCC directly to the common 5V rail (after the diode)
-
-### Programming Steps
-
-1. **Connect FTDI to ESP32-CAM:**
-   - FTDI GND → ESP32-CAM GND
-   - FTDI TX → ESP32-CAM U0R
-   - FTDI RX → ESP32-CAM U0T
-   - FTDI VCC → Common 5V Rail (powers ESP32 when DROK is off)
-
-2. **Enter programming mode:**
-   - Close the IO0 switch (IO0 → GND)
-   - Connect FTDI to USB (powers ESP32 via VCC)
-
-3. **Upload:**
-   - Arduino IDE: **Tools → Board → "AI Thinker ESP32-CAM"**
-   - Select correct COM port
-   - Click Upload
-
-4. **Run normally:**
-   - Open the IO0 switch
-   - Reset or power cycle ESP32-CAM
-
-### Alternative GPIO Mapping (If Boot Issues)
-
-If you experience boot problems with GPIO 12, use this alternative:
-
-| Function | Original | Alternative |
-|----------|----------|-------------|
-| Horizontal Servo | GPIO 12 | GPIO 2 (onboard LED will blink) |
-| Vertical Servo | GPIO 13 | GPIO 13 (no change) |
-| Trigger Relay | GPIO 14 | GPIO 14 (no change) |
-| Spinner Relay | GPIO 15 | GPIO 4 (flash LED pin) |
 
 ## Demo Video
 
@@ -471,32 +284,3 @@ Reference documentation for the ESP32-WROOM-32E development board.
 | **3V3** | - | 3.3V Output | Regulated power output |
 | **VIN/5V** | - | 5V Input | Direct from USB |
 | **GND** | - | Ground | Common ground |
-
-#### Using ESP32-WROOM-32E as USB-Serial Programmer
-
-To program an ESP32-CAM using ESP32-WROOM-32E as a USB-to-Serial adapter:
-
-```
-ESP32-WROOM-32E              ESP32-CAM              Power Source (DROK Mini)
-───────────────              ─────────              ────────────────────────
-EN ──────→ GND
-TXD0 (GPIO 1) ────────────→  U0R
-RXD0 (GPIO 3) ────────────→  U0T
-GND ──────────────────────→  GND  ←────────────────  GND
-                             5V   ←────────────────  5V OUT
-                             IO0 ──→ GND (on CAM)
-```
-
-**Connection Summary:**
-
-| Wire | From | To | Purpose |
-|------|------|-----|---------|
-| 1 | WROOM EN | WROOM GND | Disables ESP32 chip on WROOM |
-| 2 | WROOM TXD0 (GPIO 1) | CAM U0R | Serial data TX → RX |
-| 3 | WROOM RXD0 (GPIO 3) | CAM U0T | Serial data RX → TX |
-| 4 | WROOM GND | CAM GND | Common ground |
-| 5 | DROK 5V OUT | CAM 5V | Power to ESP32-CAM |
-| 6 | DROK GND | CAM GND | Power ground (shared) |
-| 7 | CAM IO0 | CAM GND | Enables programming/flash mode |
-
-**After uploading:** Disconnect IO0 from GND and reset/power-cycle the ESP32-CAM to run normally.
