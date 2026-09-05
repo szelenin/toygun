@@ -121,9 +121,10 @@ serial, and the app can be checked with any phone BLE terminal.
 
 1. **Test firing.** The relays have not been switched by this firmware yet.
    Darts out of the magazine, then `F1` / `F0` over the serial monitor.
-2. **Run the Flipper app on the Flipper.** `ToyGunFlipperApp/` compiles against
-   SDK 1.4.3 but has never been run, so the one untested link is still an app
-   actually pushing bytes down the pipe.
+2. **Get an app pushing bytes down the pipe** — still the one untested link.
+   The son is writing his own remote; `ToyGunFlipperApp/` is reference material
+   for him, not a mandate. `turret_link.c/h` there is drop-in connection code if
+   he wants it, and the example app compiles against SDK 1.4.3.
 3. **Move the 10-pin header** from the CAM to the WROOM, and disconnect it from
    the CAM completely.
 4. **Set camera resolution to VGA.** It is currently on SXGA, which caps the

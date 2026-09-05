@@ -1,76 +1,108 @@
-# Toy Gun Remote — Flipper Zero app
+# Flipper Zero — example and connection code
 
-Drives the turret over Bluetooth. Arrows aim, OK fires.
+**This is a reference, not the app you have to use.** If you are writing your
+own remote, write your own remote. This folder exists so there is something
+working to look at when you want to know how a particular piece is done.
 
-This is a **starter app that already works**. The fiddly Bluetooth plumbing is
-done; the fun part — making it look and feel how you want — is yours.
+Two separate things live here:
 
-## Build it
+| File | What it is |
+|---|---|
+| **`turret_link.h` / `turret_link.c`** | The connection code. Copy these two files into your own app and you can talk to the turret without touching BLE. |
+| `toygun_remote.c` | A small example app that uses them. Read it, run it, ignore it — whichever is useful. |
 
-You need Python and your Flipper plugged in by USB.
+## Just show me how to connect
+
+Three calls:
+
+```c
+#include "turret_link.h"
+
+TurretLink* link = turret_link_alloc();       // opens the link
+
+turret_link_hold(link, 'R', pressed);         // pan right while a button is held
+turret_link_tick(link);                       // <-- from your main loop, always
+
+turret_link_free(link);                       // stops the gun, hands BLE back
+```
+
+`turret_link_tick()` is the one that isn't optional. The turret stops moving and
+firing after **1500 ms of silence** — on purpose, so that a dropped connection
+can never leave the gun firing by itself. Something has to keep talking while a
+button is held, and `tick()` is that something. Call it every time round your
+loop.
+
+Letters are `U` `D` `L` `R` for the directions and `F` for fire. The full
+protocol — every command, every reply, the angle limits — is in
+**[../ToyGunTurretBLE/PROTOCOL.md](../ToyGunTurretBLE/PROTOCOL.md)**.
+
+## Which way round the connection goes
+
+This surprises people, so it is worth being clear:
+
+**The turret connects to the Flipper.** Not the other way round.
+
+The Flipper can only ever be a *peripheral* — its firmware has no API for
+scanning or connecting outward, we checked. So the ESP32 does the reaching: it
+scans, finds the Flipper by address, connects, and pairs. Your app doesn't
+search for anything. It opens the Flipper's Serial profile, writes text into it,
+and the turret is already listening.
+
+Which means: **you never write connection code.** `turret_link_alloc()` just
+claims the serial channel and waits.
+
+## Build
 
 ```bash
 python3 -m pip install --upgrade ufbt
 cd ToyGunFlipperApp
-ufbt launch
+ufbt launch          # Flipper plugged in by USB
 ```
 
-`ufbt` builds the app, copies it to the Flipper, and starts it. It appears in
-**Apps → GPIO → Toy Gun Remote**.
+Appears in **Apps → GPIO**. Verified building against SDK 1.4.3, API 87.1.
 
-If `ufbt launch` fails the first time, run `ufbt` on its own once — it downloads
-the SDK, which takes a minute.
+If `ufbt launch` fails the first time, run plain `ufbt` once — it downloads the
+SDK, which takes a minute.
 
-## Try it
+## Knowing it works
 
-1. Turn the turret on. It connects to the Flipper by itself — you don't have to
-   pair or search for anything.
-2. Open the app. The top line should change to **Turret: connected**.
-3. The bottom line shows what the turret sends back. On startup the app asks
-   `V` and the turret answers `VER 1 LizardGun3000`. **Seeing that reply means
-   everything works.**
-4. Press an arrow. The gun moves while you hold it.
+The example sends `V` on startup and the turret answers `VER 1 LizardGun3000`,
+shown on the bottom line. That one line proves the entire chain: profile
+started, RPC off, bytes out, turret listening, reply back.
 
-Take the darts out until you've seen it move.
+Take the darts out until you've seen the gun move.
 
-## How it actually works
+## The two traps
 
-The turret is the one that connects to *us*. The Flipper is a peripheral — it
-can't go looking for things — so this app doesn't scan or connect. It just opens
-the Flipper's Serial profile and writes text into it, and the turret is already
-listening.
-
-Commands are two characters: a letter for what, and `1` or `0` for pressed or
-released. `R1` means "start panning right", `R0` means "stop". The full list is
-in [../ToyGunTurretBLE/PROTOCOL.md](../ToyGunTurretBLE/PROTOCOL.md).
-
-## Two things not to break
+Both are already handled in `turret_link.c` — this is so you recognise them if
+you write your own version.
 
 **`ble_profile_serial_set_rpc_active(profile, false)`** — the Flipper normally
-uses this Bluetooth channel to talk to its phone app. That line tells it to stop,
-so our text gets through. Remove it and everything looks connected while nothing
-happens at all.
+uses this same channel to talk to its phone app. Without that line, the phone-app
+layer eats every byte before it reaches the radio. Everything looks connected and
+absolutely nothing happens.
 
-**The keepalive lives in the main loop**, not in the button handler. The turret
-stops moving and firing after 1500 ms of silence, on purpose, so that a dropped
-connection can never leave the gun firing by itself. Something has to keep
-talking while a button is held.
+**Keepalive in the main loop, not the button handler.** Sending it only when a
+button changes works perfectly on a desk and fails the moment one packet goes
+missing.
 
 ## When it doesn't work
 
-The turret prints every message it receives on its USB serial console, like
-`<- R1`. That splits any problem in half:
+The turret prints everything it receives on its USB serial console, like `<- R1`.
+That splits any problem in half immediately:
 
-| Symptom | Meaning |
+| What you see | Where the problem is |
 |---|---|
-| Nothing appears on the turret console | The bytes aren't leaving the Flipper — check `rpc_active` |
-| `<- R1` appears but nothing moves | The turret's problem, not yours |
-| Worked, then stopped after a second | The keepalive isn't being sent |
-| Turret never connects | Is your phone connected to the Flipper? Close the Flipper app — a Flipper that's talking to a phone goes invisible to everything else |
+| Nothing on the turret console | Bytes aren't leaving the Flipper — check `rpc_active` |
+| `<- R1` appears but nothing moves | Turret's problem, not yours |
+| Works, then stops after a second | Keepalive isn't being sent |
+| Turret never connects at all | Is your phone connected to the Flipper? Close the Flipper phone app — a Flipper talking to a phone stops advertising and goes invisible |
 
-## Ideas once it works
+## Ideas
 
-- Show the turret's position on screen — it sends `POS 90 88` while moving
-- Hold OK for half a second before firing, so it can't go off by accident
-- Read the angle from `POS` and draw a little aiming crosshair
-- Vibrate when the turret replies `OK watchdog`, so you know it cut out
+- Show the turret's position — it sends `POS 95 88` while moving
+- Draw a crosshair that moves with the reported angle
+- Require holding OK for half a second before firing
+- Vibrate when the turret sends `OK watchdog`, so you know it cut out
+- Aim by tilting — but that needs the Video Game Module, which is a whole
+  different project

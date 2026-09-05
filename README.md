@@ -118,7 +118,7 @@ a common ground — never a signal line.
 |--------|-------|-----|
 | [`ToyGunCamWiFi/`](ToyGunCamWiFi/) | ESP32-CAM | Camera stream, web UI, admin panel. Also drives servos and relays when wired to them directly. |
 | [`ToyGunTurretBLE/`](ToyGunTurretBLE/) | ESP32-WROOM-32E | Servos and firing relays, driven from a Flipper Zero over Bluetooth LE. See [its README](ToyGunTurretBLE/README.md). |
-| [`ToyGunFlipperApp/`](ToyGunFlipperApp/) | Flipper Zero | The remote — arrows aim, OK fires. Built with `ufbt`. |
+| [`ToyGunFlipperApp/`](ToyGunFlipperApp/) | Flipper Zero | Reference only: `turret_link.c/h` is drop-in connection code, plus a small example app that uses it. |
 
 `ToyGunTurretBLE` is optional. Wire the 10-pin header to the ESP32-CAM and
 `ToyGunCamWiFi` alone is a complete turret; move that header to the WROOM and
