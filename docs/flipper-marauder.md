@@ -28,61 +28,45 @@ GND          ───→  Pin 18  (GND)
 - Flipper UART pin set is switchable: **GPIO → USB-UART Bridge → Left → UART
   Pins** toggles 13/14 vs 15/16. Match the wiring above (13/14).
 
-## The build that works
+## Flashing (the way that actually worked)
 
-**`old_hardware`**, from the ESP32 Marauder release (v1.15.1 at time of writing).
+Flash from the **Flipper itself**, over the 4 GPIO wires. This installs the
+correct build for a bare WROOM and needs no working Mac USB.
 
-⚠️ Do **not** use the `flipper` build. That one is compiled for the ESP32-**S2**
-(the official Flipper WiFi Devboard is an S2), chip_id `0x0002`. This WROOM is a
-plain ESP32 (chip_id `0x0000`); the S2 image just boot-loops. If esptool says
-*"not an ESP32 image"*, that is chip mismatch — pick a different build, do NOT
-pass `--force`.
+1. Flipper: **Apps → GPIO → [ESP] Flasher**
+2. **Quick Flash → Other ESP32-WROOM → Marauder (has evil portal)**
+3. It will say *"Cannot connect to target ... make sure the device is in
+   bootloader/reflash mode"*. This is expected — the Flipper can't reset a bare
+   WROOM electrically over 4 wires. Put it in flash mode by hand:
+   - **Hold BOOT** (aka IO0) on the WROOM
+   - **Tap EN** (aka RST) once, release it
+   - **Release BOOT**
+4. Run the flash again. It connects and finishes in ~30 s.
+5. **Tap EN once** to reset the board (single tap, no BOOT this time).
+6. Open **Apps → GPIO → ESP32 WiFi Marauder**, run **Scan**, then **List → ap**.
+   Real networks should appear.
 
-Quick check: the two bytes at offset 12 of any Marauder `.bin` are the chip id.
-`0000` = plain ESP32 (what we need), `0200` = S2, `0900` = S3, `0500`/`1700` = C-series.
+⚠️ **Do NOT use the release `flipper` or `old_hardware` builds for this board.**
+- `flipper` is compiled for the ESP32-**S2** (the official devboard is an S2) —
+  it just boot-loops on a plain WROOM.
+- `old_hardware` is a plain-ESP32 build that boots and answers commands, but it
+  drives an external-antenna select pin this bare WROOM does not have, so it
+  scans and finds **zero** networks. This wasted an afternoon. The ESP Flasher
+  "Other ESP32-WROOM" build uses the onboard PCB antenna and works.
 
-```bash
-xxd -s 12 -l 2 <file>.bin      # want: 0000
-```
-
-Other plain-ESP32 builds exist (`kit`, `v6`, `marauder_v7`, `mini`, `cyd_*`,
-`m5stickc_*`) but they target boards with specific screens/hardware.
-`old_hardware` is the generic bare-devkit build.
-
-## Re-flashing from the Mac (copy-paste)
+## If you must flash from the Mac (advanced)
 
 esptool ships with the Arduino ESP32 core:
 `~/Library/Arduino15/packages/esp32/tools/esptool_py/5.1.0/esptool`
 
-1. Download the release assets (the app bin + the installer-assets zip that
-   carries the matched bootloader/partition-table/ota-data):
+The chip id is the two bytes at offset 12 of any `.bin`: `0000` = plain ESP32
+(what this board is), `0200` = S2. Never pass `--force` to flash an image whose
+chip id does not match — esptool's "not an ESP32 image" warning is real.
 
-```bash
-BASE=https://github.com/justcallmekoko/ESP32Marauder/releases/download/v1.15.1
-curl -sL -o assets.zip "$BASE/marauder-installer-assets.zip"
-unzip -o assets.zip '*old_hardware*'
-P=esp32_marauder_installer_v1_15_1_20260824_old_hardware
-```
-
-2. Confirm the chip id is `0000`, then erase and flash the four regions:
-
-```bash
-ESPTOOL=~/Library/Arduino15/packages/esp32/tools/esptool_py/5.1.0/esptool
-PORT=/dev/cu.usbserial-0001      # check with: ls /dev/cu.* | grep usbserial
-
-xxd -s 12 -l 2 "$P.bin"          # must print 0000
-
-"$ESPTOOL" --chip esp32 --port "$PORT" --baud 460800 erase-flash
-
-"$ESPTOOL" --chip esp32 --port "$PORT" --baud 460800 write-flash -z \
-  0x1000  "$P.bootloader.bin" \
-  0x8000  "$P.partition-table.bin" \
-  0xe000  "$P.ota-data.bin" \
-  0x10000 "$P.bin"
-```
-
-Standard ESP32 offsets: bootloader `0x1000`, partition table `0x8000`,
-ota-data/boot_app0 `0xe000`, app `0x10000`.
+The catch: the release bins do not include a bare-WROOM (onboard-antenna)
+headless build, which is why the Flipper "Other ESP32-WROOM" path above is the
+reliable one. If flashing from the Mac, get the matching bin from the
+auto-detecting web flasher below rather than guessing a release asset.
 
 ## Verify without the Flipper
 
@@ -95,9 +79,15 @@ arduino-cli monitor -p /dev/cu.usbserial-0001 -c baudrate=115200
 On boot it prints a big `====` banner. Type `channel` and it should echo
 `#channel` and a number. That is a working Marauder.
 
-## Easier alternatives (no command line)
+## Web flasher (Mac alternative that picks the right build)
 
-- **Web flasher:** `flash.pingequa.com` in Chrome/Edge, plug the WROOM in with a
-  data USB cable, let it auto-detect. Handles offsets and build choice for you.
-- **From the Flipper itself:** **Apps → GPIO → [ESP] Flasher → Manual Flash**,
-  board type **"Other WROOM"**, with the Marauder bin on the SD card.
+`flash.pingequa.com` in Chrome/Edge — plug the WROOM in with a **data** USB
+cable and let it auto-detect. It serves the correct generic-ESP32 build and
+handles the offsets, so it avoids the wrong-build trap above. If the USB link is
+noisy ("invalid head of packet"), try another cable or enter the bootloader by
+hand (hold BOOT, tap EN, release BOOT).
+
+## Verified working, 2026-09-07
+
+Flashed via the Flipper "Other ESP32-WROOM" path. `Scan` then `List -> ap`
+returns real networks, including the home mesh "Edgar" on multiple nodes.
